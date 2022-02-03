@@ -1,4 +1,4 @@
-const axios = require ('axios')
+const axios = require('axios')
 
 const jiraRouter = require('express').Router()
 const mongoose = require('mongoose')
@@ -6,52 +6,103 @@ const utils = require('../utils/utils')
 const jwt = require('jsonwebtoken')
 const config = require('../utils/config')
 const JiraClient = require('jira-connector')
+const Issue = require('../models/issue')
+const IssueType = require('../models/issueType')
 
 
-jiraRouter.get('/:id', async (request, response) => {
-    console.log('jira withID');
-    validCall = utils.isValidCall(request)
-    if (validCall.statuscode !== 200) {
-      response.status(validCall.statuscode).json(validCall.status)
-      return
-    }
-    const jira = new JiraClient( {
-      host: config.jiraURL,
-      basic_auth: {
-          base64: utils.createJiraToken()
-      }
-    })
+jiraRouter.get('/changeLog/:id', async (request, response) => {
+  console.log('jira withID');
+  validCall = utils.isValidCall(request)
+  if (validCall.statuscode !== 200) {
+    response.status(validCall.statuscode).json(validCall.status)
+    return
+  }
+  const jira = utils.createJiraClientWithToken()
 
+  try {
     const issue = await jira.issue.getChangelog({
       issueKey: request.params.id
-    }, function(error, issue) {
-      console.log('error', error);
-      response.json({issue: issue})
     })
+    response.json({ issue: issue })
+  } catch (error) {
+    console.log('error:', error)
+  }
+})
+
+// Here we get the issue with id from Jira and save it to db
+jiraRouter.get('/:id', async (request, response) => {
+  console.log('GET issue with id')
+  validCall = utils.isValidCall(request)
+  if (validCall.statuscode !== 200) {
+    response.status(validCall.statuscode).json(validCall.status)
+    return
+  }
+
+  try {
+    const issue = await jiraGetIssue(request.params.id)
+    const issueType = new IssueType({
+      ...issue.fields.issuetype,
+      issueTypeId: issue.fields.issuetype.id
+    })
+    // console.log(issueType)
+    // const newIssue = new Issue({
+    //   issueId: issue.id,
+    //   key: issue.key,
+    //   fields: {
+
+    //   }
+    // })
+    console.log(issueType)
+    response.json(issue)
+  } catch (error) {
+    console.log('error at api/jira/:id', error)
+    response.status(404).end()
+  }
 
 })
 
 jiraRouter.get('/', async (request, response) => {
-    console.log('noID');
-    validCall = utils.isValidCall(request)
-    if (validCall.statuscode !== 200) {
-      response.status(validCall.statuscode).json(validCall.status)
-      return
+  console.log('noID');
+  validCall = utils.isValidCall(request)
+  if (validCall.statuscode !== 200) {
+    response.status(validCall.statuscode).json(validCall.status)
+    return
+  }
+
+  // jiraGetIssue parameter would be smarter to get from the request.body later.
+  try {
+    const issue = await jiraGetIssue('AD-1')
+    response.json({ issue: issue })
+  } catch (error) {
+    console.log('error at api/jira/', error)
+    response.status(404).end()
+  }
+})
+
+// Post endpoint for creating issues. Created just for confirming the 
+// connection. From Postman make a POST req with body as "status": "success"
+jiraRouter.post('/createIssue', async (request, response) => {
+  const jira = utils.createJiraClientWithMailAndToken()
+
+  response.send('Created a new issue')
+  jira.issue.createIssue({
+    fields: {
+      project: {
+        key: 'AD',
+      },
+      summary: 'Jira Rest API via node.js TEST',
+      description: 'Created this issue with jira-connector',
+      issuetype: {
+        name: 'Story',
+      },
+      //customfield_10014: 'AD-03',
+    },
+    function(error, issue) {
+      console.log('error', error)
+      console.log('issue', issue)
     }
-    const jira = new JiraClient( {
-      host: config.jiraURL,
-      basic_auth: {
-          base64: utils.createJiraToken()
-      }
-    })
-    const issue = jira.issue.getIssue({
-      issueKey: 'LC-1'
-    }, function(error, issue) {
-      //console.log('error', error);
-      //console.log(issue);
-    })
-    //console.log('issue', issue);
-    response.json({issue: issue})
+  })
+
 })
 
 jiraRouter.post('/', async (request, response) => {
@@ -69,52 +120,46 @@ jiraRouter.post('/', async (request, response) => {
   response.status(200).json(result)
 })
 
-const jiraDeleteAll = async(array) => {
-
-  const jira = new JiraClient( {
+const jiraDeleteAll = async (array) => {
+  const jira = new JiraClient({
     host: config.jiraURL,
     basic_auth: {
-        base64: utils.createJiraToken()
+      base64: utils.createJiraToken()
     }
   })
 
   for (let i = 2; i < 43; i++) {
-    const iss = 'LC-' + i
+    const iss = 'AD-' + i
     jira.issue.deleteIssue({
       issueKey: iss
     },
-    function (error, issue) {
-      tmpObject = issue
-      console.log(issue);
-      console.log(error);
-    })
-
+      function (error, issue) {
+        tmpObject = issue
+        console.log(issue);
+        console.log(error);
+      })
   }
-
-
 }
 
-const jiraGetIssue = async(id) => {
-  const jira = new JiraClient( {
-    host: config.jiraURL,
-    basic_auth: {
-        base64: utils.createJiraToken()
-    }
+const jiraGetIssue = async (issueKey) => {
+  // const jira = new JiraClient({
+  //   host: config.jiraURL,
+  //   basic_auth: {
+  //     base64: utils.createJiraToken()
+  //   }
+  // })
+  const jira = utils.createJiraClientWithToken()
+  const issue = await jira.issue.getIssue({
+    issueKey: issueKey
   })
-  const issue = jira.issue.getIssue({
-    issueKey: 'LC-8'
-  }, function(error, issue) {
-    //console.log('error', error);
-    console.log(issue);
-  })
+  return issue
 }
 
-const jiraCreateCalls = async(array) => {
-
-  const jira = new JiraClient( {
+const jiraCreateCalls = async (array) => {
+  const jira = new JiraClient({
     host: config.jiraURL,
     basic_auth: {
-        base64: utils.createJiraToken()
+      base64: utils.createJiraToken()
     }
   })
   try {
@@ -131,28 +176,28 @@ const jiraCreateCalls = async(array) => {
   }
 }
 
-const createIssue = async(issue2, issue3, jira) => {
+const createIssue = async (issue2, issue3, jira) => {
   let tmpObject = {}
   tmpObject.fields = issue2
   const test = await jira.issue.createIssue({
     fields: issue2
   },
-  function (error, issue) {
-    tmpObject = issue
-    console.log('issue',issue);
-    console.log(error);
-    for (let j = 0; j < issue3.issues.length; j++) {
-      issue3.issues[j].customfield_10013 = issue.key
-      console.log('issue2.issues[j]', issue3.issues[j]);
-      const result2 = createIssue(issue3.issues[j], jira)
-      const test = jira.issue.createIssue({
-        fields: issue3.issues[j]
-      },
-      function (error, issue) {
-        console.log(issue);
-      })
-    }
-  })
+    function (error, issue) {
+      tmpObject = issue
+      console.log('issue', issue);
+      console.log(error);
+      for (let j = 0; j < issue3.issues.length; j++) {
+        issue3.issues[j].customfield_10013 = issue.key
+        console.log('issue2.issues[j]', issue3.issues[j]);
+        const result2 = createIssue(issue3.issues[j], jira)
+        const test = jira.issue.createIssue({
+          fields: issue3.issues[j]
+        },
+          function (error, issue) {
+            console.log(issue);
+          })
+      }
+    })
   return tmpObject.id
 
 }

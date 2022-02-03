@@ -7,6 +7,7 @@ module.exports = {
         "jest": true
     },
     "extends": "eslint:recommended",
+    "parser": "@babel/eslint-parser",
     "parserOptions": {
         "ecmaVersion": 3
     },

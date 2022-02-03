@@ -1,18 +1,51 @@
 const mongoose = require('mongoose')
 
 const issueSchema = new mongoose.Schema({
-    project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+  issueId: String,
+  key: String,
+  fields: {
+    issuetype: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Issuetype'
+    },
+    project: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Project'
+    },
+    created: Date,
+    priority: {
+      name: String,
+      id: String
+    },
+    status: {
+      description: String,
+      name: String,
+      id: String,
+      statusCategory: {
+        id: String,
+        key: String,
+        name: String
+      },
+    },
+    description: String,
     summary: String,
-    issuetype:  { type: mongoose.Schema.Types.ObjectId, ref: 'Issuetype' },
-    reporter: ,
-    priority: ,
-    description: ,
-
-  }
-  username: String,
-  name: String,
-  adult: Boolean,
-  passwordHash: String,
+    creator: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AtlassianUser'
+    },
+    reporter: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AtlassianUser'
+    },
+  },
+  // reporter: {
+  //   user: {
+  //     type: mongoose.Schema.Types.ObjectId,
+  //     ref: 'User'
+  //   }
+  // },
+  priority: String,
+  
 })
 
 issueSchema.statics.format = (user) => {
@@ -24,6 +57,6 @@ issueSchema.statics.format = (user) => {
   }
 }
 
-const User = mongoose.model('User', userSchema)
+const Issue = mongoose.model('Issue', issueSchema)
 
 module.exports = Issue

@@ -3,7 +3,11 @@ const uniqueValidator = require('mongoose-unique-validator')
 
 const issueTypeSchema = new mongoose.Schema({
     self: String,
-    issueTypeId: String,
+    issueTypeId: {
+        type: String,
+        unique: true,
+        required: true
+    },
     description: String,
     name: String,
     subtask: Boolean,

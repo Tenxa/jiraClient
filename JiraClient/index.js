@@ -24,6 +24,7 @@ app.use('/api/login', loginRouter)
 app.use('/api/jira', jiraRouter)
 app.use('/api/devlabs', devlabsRouter)
 app.use(middleware.logger)
+app.use(middleware.errorHandler)
 
 
 //const PORT = config.port

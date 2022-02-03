@@ -8,6 +8,8 @@ const config = require('../utils/config')
 const JiraClient = require('jira-connector')
 const Issue = require('../models/issue')
 const IssueType = require('../models/issueType')
+const Project = require('../models/project')
+require('express-async-errors')
 
 
 jiraRouter.get('/changeLog/:id', async (request, response) => {
@@ -40,20 +42,58 @@ jiraRouter.get('/:id', async (request, response) => {
 
   try {
     const issue = await jiraGetIssue(request.params.id)
-    const issueType = new IssueType({
+
+    let newIssue = new Issue({
+      issueId: issue.id,
+      key: issue.key,
+      fields: {
+        issuetype: null,
+        project: null,
+        created: issue.fields.created,
+        priority: {
+          ...issue.fields.priority
+        },
+        status: {
+          ...issue.fields.status
+        },
+        description: issue.fields.description,
+        summary: issue.fields.summary
+      },
+    })
+
+    let issueType = new IssueType({
       ...issue.fields.issuetype,
       issueTypeId: issue.fields.issuetype.id
     })
-    // console.log(issueType)
-    // const newIssue = new Issue({
-    //   issueId: issue.id,
-    //   key: issue.key,
-    //   fields: {
+    await IssueType.countDocuments({ issueTypeId: issueType.issueTypeId }, async (err, count) => {
+      if (count === 0) {
+        console.log('IssueType Saved!')
+        await issueType.save()
+      } else {
+        const foundIssueType = await IssueType.findOne({ key: issueType.key })
+        issueType._id = foundIssueType._id
+        newIssue.fields.issuetype = foundIssueType.id
+      }
+    })
 
-    //   }
-    // })
-    console.log(issueType)
-    response.json(issue)
+    let issueProject = new Project({
+      ...issue.fields.project,
+      projectId: issue.fields.project.id
+    })
+    await Project.countDocuments({ projectId: issueProject.projectId }, async (err, count) => {
+      console.log(count)
+      if (count === 0) {
+        console.log('Project saved!')
+        await issueProject.save()
+      } else {
+        const foundProject = await Project.findOne({ projectId: issueProject.projectId })
+        issueProject._id = foundProject._id
+        newIssue.fields.project = foundProject.id
+      }
+    })
+
+    await newIssue.save()
+    response.json(newIssue)
   } catch (error) {
     console.log('error at api/jira/:id', error)
     response.status(404).end()

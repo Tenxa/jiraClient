@@ -38,24 +38,17 @@ const issueSchema = new mongoose.Schema({
       ref: 'AtlassianUser'
     },
   },
-  // reporter: {
-  //   user: {
-  //     type: mongoose.Schema.Types.ObjectId,
-  //     ref: 'User'
-  //   }
-  // },
   priority: String,
   
 })
 
-issueSchema.statics.format = (user) => {
-  return {
-    id: user.id,
-    username: user.username,
-    name: user.name,
-    adult: user.adult === undefined ? true : user.adult,
+issueSchema.set('toJSON', {
+  transform: (document, returnedObject) => {
+      returnedObject.id = returnedObject._id.toString()
+      delete returnedObject._id
+      delete returnedObject.__v
   }
-}
+})
 
 const Issue = mongoose.model('Issue', issueSchema)
 

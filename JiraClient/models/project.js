@@ -1,7 +1,16 @@
 const mongoose = require('mongoose')
+const uniqueValidator = require('mongoose-unique-validator')
 
 const projectSchema = mongoose.Schema({
-    key: String,
+    key: {
+        type: String,
+        required: true
+    },
+    projectId: {
+        type: String,
+        unique: true,
+        required: true
+    },
     name: String,
     projectTypeKey: String,
     simplified: Boolean
@@ -14,6 +23,12 @@ projectSchema.set('toJSON', {
         delete returnedObject.__v
     }
 })
+
+projectSchema.plugin(uniqueValidator)
+
+const Project = mongoose.model('Project', projectSchema)
+
+module.exports = Project
 
 /**
  * Example from postman request: 

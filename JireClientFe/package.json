@@ -17,7 +17,7 @@
     "test": "react-scripts test --env=jsdom",
     "eject": "react-scripts eject"
   },
-  "proxy": "http://localhost:3003",
+  "proxy": "http://localhost:3004",
   "devDependencies": {
     "enzyme": "^3.6.0",
     "enzyme-adapter-react-16": "^1.2.0"

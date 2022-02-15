@@ -1,14 +1,13 @@
-const axios = require('axios')
-
 const jiraRouter = require('express').Router()
-const mongoose = require('mongoose')
 const utils = require('../utils/utils')
-const jwt = require('jsonwebtoken')
 const config = require('../utils/config')
 const JiraClient = require('jira-connector')
 const Issue = require('../models/issue')
 const IssueType = require('../models/issueType')
 const Project = require('../models/project')
+const ChangeLog = require('../models/changeLog')
+const ChangeLogValue = require('../models/changeLogValue')
+const AtlassianUser = require('../models/atlassianUser')
 require('express-async-errors')
 
 
@@ -25,81 +24,144 @@ jiraRouter.get('/changeLog/:id', async (request, response) => {
     const issue = await jira.issue.getChangelog({
       issueKey: request.params.id
     })
-    response.json({ issue: issue })
+
+
+    const changevalue = issue.values.map(async (e) => {
+      const getUser = await utils.isUser(e.author.emailAddress)
+      if (!getUser) {
+        let atlUser = new AtlassianUser({ ...e.author })
+        const chv = new ChangeLogValue({
+          ...e,
+          author: atlUser
+        })
+        await atlUser.save()
+        return chv
+      }
+      return new ChangeLogValue({
+        ...e,
+        author: getUser
+      })
+
+    })
+    const changeValueArray = await Promise.all(changevalue)
+
+    const isIssueChangeLog = async () => {
+      return await ChangeLog.findOne({ self: issue.self })
+    }
+    const getChangeLog = await isIssueChangeLog()
+
+    const issueChangeLog = new ChangeLog({
+      ...issue,
+      values: changeValueArray
+    })
+
+    // Jos tietokannasta löytyy
+    if (getChangeLog) {
+      console.log('found in db')
+      // Jos haettu tieto eroaa self kentällä tai niiden value listat ovat eripituisia
+      if (utils.compareChangeLogs(getChangeLog, issueChangeLog)) {
+        // Haetaan ja päivitetään
+        console.log('found in db but differ')
+        const updated = await ChangeLog.findByIdAndUpdate(getChangeLog._id, {
+          total: issueChangeLog.total,
+          values: issueChangeLog.values
+        }, { new: true })
+        console.log(issueChangeLog)
+        response.json({ changeLog: updated })
+        return
+      }
+      response.json({ changeLog: getChangeLog })
+    } else {
+      // Jos tietokannasta ei löydy, niin tallennetaan haettu sellaisenaan.
+      console.log('not found in db')
+      await issueChangeLog.save()
+      response.json({ changeLog: issueChangeLog })
+    }
+
   } catch (error) {
     console.log('error:', error)
   }
 })
 
 // Here we get the issue with id from Jira and save it to db
-jiraRouter.get('/:id', async (request, response) => {
-  console.log('GET issue with id')
-  validCall = utils.isValidCall(request)
-  if (validCall.statuscode !== 200) {
-    response.status(validCall.statuscode).json(validCall.status)
-    return
-  }
+// jiraRouter.get('/:id', async (request, response) => {
+//   console.log('GET issue with id')
+//   validCall = utils.isValidCall(request)
+//   if (validCall.statuscode !== 200) {
+//     response.status(validCall.statuscode).json(validCall.status)
+//     return
+//   }
 
-  try {
-    const issue = await jiraGetIssue(request.params.id)
+//   try {
+//     const issue = await jiraGetIssue(request.params.id)
 
-    let newIssue = new Issue({
-      issueId: issue.id,
-      key: issue.key,
-      fields: {
-        issuetype: null,
-        project: null,
-        created: issue.fields.created,
-        priority: {
-          ...issue.fields.priority
-        },
-        status: {
-          ...issue.fields.status
-        },
-        description: issue.fields.description,
-        summary: issue.fields.summary
-      },
-    })
+//     console.log('hmm', issue.fields.issuetype)
 
-    let issueType = new IssueType({
-      ...issue.fields.issuetype,
-      issueTypeId: issue.fields.issuetype.id
-    })
-    await IssueType.countDocuments({ issueTypeId: issueType.issueTypeId }, async (err, count) => {
-      if (count === 0) {
-        console.log('IssueType Saved!')
-        await issueType.save()
-      } else {
-        const foundIssueType = await IssueType.findOne({ key: issueType.key })
-        issueType._id = foundIssueType._id
-        newIssue.fields.issuetype = foundIssueType.id
-      }
-    })
+//     let newIssueType = new IssueType({
+//       ...issue.fields.issuetype,
+//       issueTypeId: issue.fields.issuetype.id
+//     })
 
-    let issueProject = new Project({
-      ...issue.fields.project,
-      projectId: issue.fields.project.id
-    })
-    await Project.countDocuments({ projectId: issueProject.projectId }, async (err, count) => {
-      console.log(count)
-      if (count === 0) {
-        console.log('Project saved!')
-        await issueProject.save()
-      } else {
-        const foundProject = await Project.findOne({ projectId: issueProject.projectId })
-        issueProject._id = foundProject._id
-        newIssue.fields.project = foundProject.id
-      }
-    })
+//     let newIssueProject = new Project({
+//       ...issue.fields.project,
+//       projectId: issue.fields.project.id
+//     })
 
-    await newIssue.save()
-    response.json(newIssue)
-  } catch (error) {
-    console.log('error at api/jira/:id', error)
-    response.status(404).end()
-  }
+//     let newIssue = new Issue({
+//       issueId: issue.id,
+//       key: issue.key,
+//       fields: {
+//         issuetype: null,
+//         project: null,
+//         created: issue.fields.created,
+//         priority: {
+//           ...issue.fields.priority
+//         },
+//         status: {
+//           ...issue.fields.status
+//         },
+//         description: issue.fields.description,
+//         summary: issue.fields.summary
+//       },
+//     })
+    
+//     await IssueType.countDocuments({ issueTypeId: newIssueType.issueTypeId }, async (err, count) => {
+//       console.log('IssueTypes:', count)
+//       if (count === 0) {
+//         console.log('IssueType Saved!')
+//         newIssue.fields.issuetype = newIssueType
+//         console.log('hmm2', newIssue.fields.issuetype)
+//         await newIssueType.save()
+//       } else {
+//         const foundIssueType = await IssueType.findOne({ key: newIssueType.key })
+//         newIssueType._id = foundIssueType._id
+//         newIssue.fields.issuetype = foundIssueType.id
+//         //newIssue.fields.issuetype = foundIssueType
+//       }
+//     })
 
-})
+//     await Project.countDocuments({ projectId: newIssueProject.projectId }, async (err, count) => {
+//       console.log('Projects', count)
+//       if (count === 0) {
+//         console.log('Project saved!')
+//         newIssue.fields.project = newIssueProject
+//         await newIssueProject.save()
+//       } else {
+//         const foundProject = await Project.findOne({ projectId: newIssueProject.projectId })
+//         newIssueProject._id = foundProject._id
+//         newIssue.fields.project = foundProject.id
+//         //newIssue.fields.project = foundProject
+//       }
+//     })
+
+//     await newIssue.save()
+//     response.json(newIssue)
+//   } catch (error) {
+//     console.log('error at api/jira/:id', error)
+//     response.status(404).end()
+//   }
+
+// })
 
 jiraRouter.get('/', async (request, response) => {
   console.log('noID');
@@ -109,7 +171,6 @@ jiraRouter.get('/', async (request, response) => {
     return
   }
 
-  // jiraGetIssue parameter would be smarter to get from the request.body later.
   try {
     const issue = await jiraGetIssue('AD-1')
     response.json({ issue: issue })
@@ -182,12 +243,6 @@ const jiraDeleteAll = async (array) => {
 }
 
 const jiraGetIssue = async (issueKey) => {
-  // const jira = new JiraClient({
-  //   host: config.jiraURL,
-  //   basic_auth: {
-  //     base64: utils.createJiraToken()
-  //   }
-  // })
   const jira = utils.createJiraClientWithToken()
   const issue = await jira.issue.getIssue({
     issueKey: issueKey

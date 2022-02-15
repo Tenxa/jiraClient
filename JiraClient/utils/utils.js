@@ -2,6 +2,8 @@
 const JiraClient = require('jira-connector')
 const jwt = require('jsonwebtoken')
 const config = require('../utils/config')
+const AtlassianUser = require('../models/atlassianUser')
+const ChangeLogValue = require('../models/changeLogValue')
 
 const createJiraToken = () => {
   //console.log(config.jiraUser + ':' + config.jiraToken);
@@ -83,7 +85,31 @@ const isValidCall = (request) => {
     console.log(e)
     return { 'statuscode': 500, 'status': 'epicFail' }
   }
+}
 
+const isUser = async (addr) => {
+  return await AtlassianUser.findOne({ emailAddress: addr }, (err, user) => !!user)
+}
+
+const isChangeValue = async (date) => {
+  return await ChangeLogValue.findOne({ created: date }, (err, cv) => !!cv)
+}
+
+const removeObjId = (obj) => {
+  let {...a} = obj
+  let {_id, ...doc} = a._doc
+  //console.log(doc)
+  return doc
+}
+
+const compareChangeLogs = (obj1, obj2) => {
+  if (obj1.self === obj2.self) {
+    return true
+  }
+  if (obj1.total === obj2.total) {
+    return true
+  }
+  return false
 }
 
 module.exports = {
@@ -91,5 +117,9 @@ module.exports = {
   createJiraToken,
   createJiraTokenFromPsw,
   createJiraClientWithToken,
-  createJiraClientWithMailAndToken
+  createJiraClientWithMailAndToken,
+  isUser,
+  isChangeValue,
+  removeObjId,
+  compareChangeLogs
 }

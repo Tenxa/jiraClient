@@ -15,14 +15,14 @@ const issueSchema = new mongoose.Schema({
     created: Date,
     priority: {
       name: String,
-      id: String
+      priorityId: String
     },
     status: {
       description: String,
       name: String,
-      id: String,
+      StatusId: String,
       statusCategory: {
-        id: String,
+        StatusCategoryId: String,
         key: String,
         name: String
       },

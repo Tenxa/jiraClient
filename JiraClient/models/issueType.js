@@ -16,9 +16,9 @@ const issueTypeSchema = new mongoose.Schema({
 
 issueTypeSchema.set('toJSON', {
     transform: (document, returnedObject) => {
-        returnedObject.id = returnedObject_id.toString()
-        delete returnedObject.returnedObject_id
-        delete returnedObject__v
+        returnedObject.id = returnedObject._id.toString()
+        delete returnedObject._id
+        delete returnedObject.__v
     }
 })
 

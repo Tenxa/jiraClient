@@ -1,10 +1,17 @@
 const mongoose = require('mongoose')
+const uniqueValidator = require('mongoose-unique-validator')
 
 
 const atlassianUserSchema = new mongoose.Schema({
   accountId: String,
-  emailAddress: String,
+  emailAddress: {
+      type: String,
+      unique: true,
+      required: true
+  },
   displayName: String,
+  active: Boolean,
+  accountType: String
 })
 
 atlassianUserSchema.set('toJSON', {
@@ -14,6 +21,8 @@ atlassianUserSchema.set('toJSON', {
         delete returnedObject.__v
     }
 })
+
+atlassianUserSchema.plugin(uniqueValidator)
 
 const AtlassianUser = mongoose.model('AtlassianUser', atlassianUserSchema)
 

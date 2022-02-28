@@ -50,35 +50,32 @@ devlabsRouter.get('/sprint/:id', async (request, response) => {
 
 devlabsRouter.get('/search', async (request, response) => {
   console.log('devlabs without id');
+  let jql_string = 'issuetype in (Story, Task) AND project = AD AND component not in ("FI Development", "Cloud Infra") AND Sprint in (openSprints())'
+  const jira = new JiraClient({
+    protocol: 'https',
+    strictSSL: false,
+    host: config.jiraDevLabsUrl,
+    apiVersion: '2',
+    basic_auth: {
+      email: config.jiraDevLabsUser.trim(),
+      api_token: config.jiraToken.trim()
+    }
+  })
 
-
-  //let jql_string = 'issuetype in (Story, Task) AND project = AD AND component not in ("FI Development", "Cloud Infra") AND Sprint in (openSprints())'
-  // const jira = new JiraClient({
-  //   protocol: 'https',
-  //   strictSSL: false,
-  //   host: config.jiraDevLabsUrl,
-  //   apiVersion: '2',
-  //   basic_auth: {
-  //     email: config.jiraDevLabsUser.trim(),
-  //     api_token: config.jiraToken.trim()
-  //   }
-  // })
-  const jira = utils.createJiraClientWithToken()
-
+  //const jira = utils.createJiraClientWithToken()
   //console.log('req body: ', request.body.jql)
 
+
   try {
-    const issue = await jira.search.search({
-      jql: 'project = AD'
-    })
+    //const issue = await jira.search.search({ jql: jql_string });
+
+    const issue = await jira.issue.getIssue({ issueKey: 'AD-1' })
     response.json({ issue: issue })
   } catch (error) {
     console.log('error in /search first try/catch', error)
   }
 
 })
-
-
 
 devlabsRouter.post('/write2file', async (request, response) => {
   // validating own call
@@ -138,20 +135,20 @@ const jiraDeleteAll = async (array) => {
 
 }
 
-const jiraGetIssue = async (id) => {
-  const jira = new JiraClient({
-    host: config.jiraURL,
-    basic_auth: {
-      base64: utils.createJiraToken()
-    }
-  })
-  const issue = jira.issue.getIssue({
-    issueKey: 'LC-8'
-  }, function (error, issue) {
-    //console.log('error', error);
-    console.log(issue);
-  })
-}
+// const jiraGetIssue = async (id) => {
+//   const jira = new JiraClient({
+//     host: config.jiraURL,
+//     basic_auth: {
+//       base64: utils.createJiraToken()
+//     }
+//   })
+//   const issue = jira.issue.getIssue({
+//     issueKey: 'LC-8'
+//   }, function (error, issue) {
+//     //console.log('error', error);
+//     console.log(issue);
+//   })
+// }
 
 const jiraCreateCalls = async (array) => {
 

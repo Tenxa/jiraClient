@@ -2,8 +2,8 @@
 const JiraClient = require('jira-connector')
 const jwt = require('jsonwebtoken')
 const config = require('../utils/config')
-const AtlassianUser = require('../models/atlassianUser')
-const ChangeLogValue = require('../models/changeLogValue')
+const Issue = require('../models/issue')
+const ChangeLog = require('../models/changeLog')
 
 const createJiraToken = () => {
   //console.log(config.jiraUser + ':' + config.jiraToken);
@@ -87,17 +87,9 @@ const isValidCall = (request) => {
   }
 }
 
-const isUser = async (addr) => {
-  return await AtlassianUser.findOne({ emailAddress: addr }, (err, user) => !!user)
-}
-
-const isChangeValue = async (date) => {
-  return await ChangeLogValue.findOne({ created: date }, (err, cv) => !!cv)
-}
-
 const removeObjId = (obj) => {
-  let {...a} = obj
-  let {_id, ...doc} = a._doc
+  let { ...a } = obj
+  let { _id, ...doc } = a._doc
   //console.log(doc)
   return doc
 }
@@ -112,14 +104,120 @@ const compareChangeLogs = (obj1, obj2) => {
   return false
 }
 
+// Currently not in use but keeping in case
+const createNewIssue = (issue) => {
+  let field = { ...issue.fields }
+  let newIssue = {
+    ...issue,
+    issueId: issue.id,
+    fields: {
+      ...field,
+      issuetype: {
+        ...field.issuetype,
+        issueTypeId: field.issuetype.id,
+      },
+      project: {
+        ...field.project,
+        projectId: field.project.id
+      },
+      priority: {
+        ...field.priority,
+        priorityId: field.priority.id
+      },
+      status: {
+        ...field.status,
+        statusId: field.status.id,
+        statusCategory: {
+          ...field.status.statusCategory,
+          statusCategoryId: field.status.statusCategory.id
+        }
+      }
+    }
+  }
+  return newIssue
+}
+
+// Kahdesta alla olevista funktioista voisi tehdä geneerisempi toteutus...
+const issuePromises = (issues) => {
+  return issues.map((async i => {
+    return Issue.findOneAndUpdate({ 'id': i.id }, i, { new: true, upsert: true })
+      .then(updatedIssue => updatedIssue)
+      .catch(error => {
+        console.log(error)
+        return error
+      })
+  }))
+}
+
+const changelogUpsert = (issues) => {
+  return issues.map((async i => {
+    return ChangeLog.findOneAndUpdate({ 'issueId': i.issueId }, i, { new: true, upsert: true })
+      .then(updatedIssue => updatedIssue)
+      .catch(error => {
+        console.log(error)
+        return error
+      })
+  }))
+
+}
+
+const jqlSearch = (start, max, jql) => {
+  return {
+    //jql: 'ORDER BY Created DESC',
+    jql,
+    maxResults: max,
+    startAt: start
+  }
+}
+
+const changelogsByIdArray = async (array) => {
+  const jira = createJiraClientWithToken()
+  const clogsById = array.map(async (id) => {
+    // Voidaanko tässä hakea createdin mukaan?, jos ei muuta niin filtteröidään resulttia.
+    const cl = await jira.issue.getChangelog({
+      issueId: id
+    })
+    const newCl = {
+      ...cl,
+      issueId: id
+    }
+    return newCl
+  })
+  const results = await Promise.all(clogsById)
+  const updateOrInsertCLToDb = await changelogUpsert(results)
+  return await Promise.all(updateOrInsertCLToDb)
+}
+
+
+const issueSearchLoop = async (startAt, maxResults, jql) => {
+  const jira = createJiraClientWithToken()
+  let issueArray = []
+  const issueSearch = await jira.search.search(jqlSearch(startAt, maxResults, jql))
+  issueSearch.issues.map(i => {
+    issueArray.push(i)
+  })
+  if (issueSearch.total > maxResults) {
+    const rounds = Math.ceil(issueSearch.total / maxResults)
+    for (i = 0; i < rounds - 1; i++) {
+      startAt += maxResults
+      const search = await jira.search.search(jqlSearch(startAt, maxResults, jql))
+      search.issues.map(i => {
+        issueArray.push(i)
+      })
+    }
+  }
+  const updateOrInsertIssueToDb = await issuePromises(issueArray)
+  return await Promise.all(updateOrInsertIssueToDb)
+}
+
+
 module.exports = {
   isValidCall,
   createJiraToken,
   createJiraTokenFromPsw,
   createJiraClientWithToken,
   createJiraClientWithMailAndToken,
-  isUser,
-  isChangeValue,
-  removeObjId,
-  compareChangeLogs
+  changelogUpsert,
+  changelogsByIdArray,
+  issueSearchLoop
 }

@@ -1,8 +1,24 @@
 const jiraRouter = require('express').Router()
 const utils = require('../utils/utils')
 const Issue = require('../models/issue')
+const config = require('../utils/config')
 require('express-async-errors')
+const Jira = require('jira.js')
 
+
+jiraRouter.get('/logs', async (request, response) => {
+  const jira = utils.jiraClientV2()
+
+  try {
+    const projects = await jira.issues.getChangeLogs({
+      issueIdOrKey: 'AD-1'
+    });
+    response.json( projects )
+  } catch (error) {
+    console.log(error)
+    response.status(404).end()
+  }
+})
 
 // Tarkista vielä vaikuttaako miten tuo changelog maxResult = 100 mitenkä
 // Tarvitaanko parametreja changelog "created", jotta ei haeta koko historiaa?

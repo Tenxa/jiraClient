@@ -4,6 +4,9 @@ const jwt = require('jsonwebtoken')
 const config = require('../utils/config')
 const Issue = require('../models/issue')
 const ChangeLog = require('../models/changeLog')
+const Jirajs = require('jira.js')
+//import { Version2Client } from 'jira.js';
+
 
 const createJiraToken = () => {
   //console.log(config.jiraUser + ':' + config.jiraToken);
@@ -39,6 +42,19 @@ const createJiraClientWithMailAndToken = () => {
     strictSSL: false,
     apiVersion: '2',
   })
+  return jira
+}
+
+const jiraClientV2 = () => {
+  const jira = new Jirajs.Version2Client({
+    host: config.jiraURL,
+    authentication: {
+      basic: {
+        email: config.jiraDevLabsUser.trim(),
+        apiToken: config.jiraToken.trim()
+      },
+    },
+  });
   return jira
 }
 
@@ -219,5 +235,6 @@ module.exports = {
   createJiraClientWithMailAndToken,
   changelogUpsert,
   changelogsByIdArray,
-  issueSearchLoop
+  issueSearchLoop,
+  jiraClientV2
 }

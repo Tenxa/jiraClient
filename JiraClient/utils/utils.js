@@ -5,7 +5,6 @@ const config = require('../utils/config')
 const Issue = require('../models/issue')
 const ChangeLog = require('../models/changeLog')
 const Jirajs = require('jira.js')
-//import { Version2Client } from 'jira.js';
 
 
 const createJiraToken = () => {
@@ -58,21 +57,6 @@ const jiraClientV2 = () => {
   return jira
 }
 
-//const getTokenFrom = (request) => {
-//
-//  try {
-//    const authorization = request.get('Authorization')
-//    console.log('authorization', authorization)
-//    if (authorization && authorization.toLowerCase().startsWith('bearer ')) {
-//      console.log('index to subst', authorization.lastIndexOf('bearer ') + 7)
-//      return authorization.substring(authorization.lastIndexOf('bearer ') + 7)
-//    }
-//    return null
-//  }
-//  catch (e)  {
-//    console.log(e)
-//  }
-//}
 
 const isValidCall = (request) => {
   try {
@@ -103,55 +87,6 @@ const isValidCall = (request) => {
   }
 }
 
-const removeObjId = (obj) => {
-  let { ...a } = obj
-  let { _id, ...doc } = a._doc
-  //console.log(doc)
-  return doc
-}
-
-const compareChangeLogs = (obj1, obj2) => {
-  if (obj1.self === obj2.self) {
-    return true
-  }
-  if (obj1.total === obj2.total) {
-    return true
-  }
-  return false
-}
-
-// Currently not in use but keeping in case
-const createNewIssue = (issue) => {
-  let field = { ...issue.fields }
-  let newIssue = {
-    ...issue,
-    issueId: issue.id,
-    fields: {
-      ...field,
-      issuetype: {
-        ...field.issuetype,
-        issueTypeId: field.issuetype.id,
-      },
-      project: {
-        ...field.project,
-        projectId: field.project.id
-      },
-      priority: {
-        ...field.priority,
-        priorityId: field.priority.id
-      },
-      status: {
-        ...field.status,
-        statusId: field.status.id,
-        statusCategory: {
-          ...field.status.statusCategory,
-          statusCategoryId: field.status.statusCategory.id
-        }
-      }
-    }
-  }
-  return newIssue
-}
 
 // Kahdesta alla olevista funktioista voisi tehdä geneerisempi toteutus...
 const issuePromises = (issues) => {
@@ -186,20 +121,20 @@ const jqlSearch = (start, max, jql) => {
   }
 }
 
-const changelogsByIdArray = async (array) => {
-  const jira = createJiraClientWithToken()
-  const clogsById = array.map(async (id) => {
-    // Voidaanko tässä hakea createdin mukaan?, jos ei muuta niin filtteröidään resulttia.
-    const cl = await jira.issue.getChangelog({
-      issueId: id
+const changeLogsByIdArrayV2 = async (ids) => {
+  const jira = jiraClientV2()
+
+  const logsById = ids.map(async (id) => {
+    const cl = await jira.issues.getChangeLogs({
+      issueIdOrKey: id
     })
-    const newCl = {
+    return {
       ...cl,
       issueId: id
     }
-    return newCl
   })
-  const results = await Promise.all(clogsById)
+
+  const results = await Promise.all(logsById)
   const updateOrInsertCLToDb = await changelogUpsert(results)
   return await Promise.all(updateOrInsertCLToDb)
 }
@@ -234,7 +169,7 @@ module.exports = {
   createJiraClientWithToken,
   createJiraClientWithMailAndToken,
   changelogUpsert,
-  changelogsByIdArray,
   issueSearchLoop,
-  jiraClientV2
+  jiraClientV2,
+  changeLogsByIdArrayV2
 }

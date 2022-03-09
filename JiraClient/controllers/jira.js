@@ -1,17 +1,17 @@
 const jiraRouter = require('express').Router()
 const utils = require('../utils/utils')
 const Issue = require('../models/issue')
-const config = require('../utils/config')
 require('express-async-errors')
-const Jira = require('jira.js')
 
 
-jiraRouter.get('/logs', async (request, response) => {
+
+
+jiraRouter.get('/epics', async (request, response) => {
   const jira = utils.jiraClientV2()
 
   try {
-    const projects = await jira.issues.getChangeLogs({
-      issueIdOrKey: 'AD-1'
+    const projects = await jira.issueSearch.searchForIssuesUsingJql({
+      jql: 'issuetype = Epic'
     });
     response.json( projects )
   } catch (error) {
@@ -31,7 +31,7 @@ jiraRouter.get('/cl', async (request, response, next) => {
   const idOnly = idAndMongoId.map(is => parseInt(is.id))
 
   try {
-    const updatedResults = await utils.changelogsByIdArray(idOnly)
+    const updatedResults = await utils.changeLogsByIdArrayV2(idOnly)
     //console.log(updatedResults)
     response.json({ ...updatedResults })
   } catch (error) {

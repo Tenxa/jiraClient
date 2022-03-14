@@ -57,6 +57,19 @@ const jiraClientV2 = () => {
   return jira
 }
 
+const jiraAgileClient = () => {
+  const agile = new Jirajs.AgileClient({
+    host: config.jiraURL,
+    authentication: {
+      basic: {
+        email: config.jiraDevLabsUser.trim(),
+        apiToken: config.jiraToken.trim()
+      },
+    },
+  })
+  return agile
+}
+
 
 const isValidCall = (request) => {
   try {
@@ -171,5 +184,6 @@ module.exports = {
   changelogUpsert,
   issueSearchLoop,
   jiraClientV2,
+  jiraAgileClient,
   changeLogsByIdArrayV2
 }

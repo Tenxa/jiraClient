@@ -1,23 +1,83 @@
 const jiraRouter = require('express').Router()
 const utils = require('../utils/utils')
+const mongooseQuery = require('../utils/mongooseQueries')
 const Issue = require('../models/issue')
 require('express-async-errors')
+const Ticket = require('../models/ticket')
 
 
+// const jira = utils.jiraClientV2()
+// const agile = utils.jiraAgileClient()
+
+// try {
+//   const epics = await jira.issueSearch.searchForIssuesUsingJql({
+//     jql: 'issuetype = Epic'
+//   });
+
+//   const epicsIssues = epics.issues.map(async (epic) => {
+//     // todo: if total exceeds maxResults = 50 do another round
+//     const issuesInEpic = await agile.epic.getIssuesForEpic({
+//       epicIdOrKey: epic.id
+//     })
+//     return {
+//       ...epic,
+//       issuesInEpic: issuesInEpic.issues
+//     }
+//   })
+//   const result = await Promise.all(epicsIssues)
+//   response.json(result)
+
+// } catch (error) {
+//   console.log(error)
+//   response.status(404).end()
+// }
 
 
+//
 jiraRouter.get('/epics', async (request, response) => {
-  const jira = utils.jiraClientV2()
+  // find all epics that with statuses
+  const epics = await mongooseQuery.mongooseEpics()
+  //console.log(epics.map(epic => epic.id))
 
-  try {
-    const projects = await jira.issueSearch.searchForIssuesUsingJql({
-      jql: 'issuetype = Epic'
-    });
-    response.json( projects )
-  } catch (error) {
-    console.log(error)
-    response.status(404).end()
-  }
+  // get all Features with an epic as parent
+  const ya = epics.map(async (epic) => {
+    const featuresForEpic = await mongooseQuery.featuresInEpic(epic.id)
+
+    // next get all stories in the features. ^ returns a list of features.
+    // lets map through the features and query for stories. Then add a counter for story statuses
+    // return a feature doc that has the status fields...
+    if (featuresForEpic.length === 0) return
+    const mapStoriesToFeature = await featuresForEpic.map(async (feature) => {
+      const storiesForFeature = await mongooseQuery.storiesInFeature(feature.id)
+      return storiesForFeature
+    })
+    //console.log(await Promise.all(mapStoriesToFeature))
+    return await Promise.all(mapStoriesToFeature)
+
+  })
+
+  const resolveArray = await Promise.all(ya)
+  const filterUndefined = await resolveArray.flat().filter(a => a !== undefined)
+  response.json(filterUndefined.flat().map(issue => {
+    return {
+      id: issue.id,
+      key: issue.key,
+      fields: {
+        parents: issue.fields.parent,
+        issuetype: issue.fields.issuetype,
+        status: issue.fields.status,
+        fixVersions: issue.fields.fixVersions
+      }
+    }
+  }))
+
+
+
+  // const tp = await mongooseQuery.ticketsByParent('31658')
+  // console.log(tp.map(t => t.id))
+  // const feature = await mongooseQuery.featuresInEpic('31628')
+  // console.log(feature.map(f => f.id))
+
 })
 
 // Tarkista vielä vaikuttaako miten tuo changelog maxResult = 100 mitenkä

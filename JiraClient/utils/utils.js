@@ -174,6 +174,26 @@ const issueSearchLoop = async (startAt, maxResults, jql) => {
   return await Promise.all(updateOrInsertIssueToDb)
 }
 
+const switchCaseStatus = (key, { toDo, inProgress, done } = { toDo: 0, inProgress: 0, done: 0 }) => {
+  switch (key) {
+    case 'To Do':
+      toDo += 1
+      break;
+    case 'In Progress':
+      inProgress += 1
+      break;
+    case 'Done':
+      done += 1
+      break;
+    default:
+      break;
+  }
+  return {
+    toDo,
+    inProgress,
+    done
+  }
+}
 
 module.exports = {
   isValidCall,
@@ -185,5 +205,6 @@ module.exports = {
   issueSearchLoop,
   jiraClientV2,
   jiraAgileClient,
-  changeLogsByIdArrayV2
+  changeLogsByIdArrayV2,
+  switchCaseStatus
 }

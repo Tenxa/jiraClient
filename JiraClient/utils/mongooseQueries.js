@@ -1,6 +1,12 @@
 const Ticket = require('../models/ticket')
 
 
+const allEpics = async () => {
+  return await Ticket.find({
+    'fields.issuetype.name': 'Epic'
+  })
+}
+
 const mongooseEpics = async () => {
   return await Ticket.find({
     $and: [
@@ -24,11 +30,19 @@ const mongooseEpics = async () => {
   })
 }
 
+// There are 0 Features with epic as parent, but we'll leave it there on the query
 const featuresInEpic = async (epicId) => {
   return await Ticket.find({
     $and: [
       {
-        'fields.issuelinks.outwardIssue.id': epicId
+        $or: [
+          {
+            'fields.issuelinks.outwardIssue.id': epicId
+          },
+          {
+            'fields.parent.id': epicId
+          },
+        ],
       },
       {
         'fields.issuetype.name': 'Feature'
@@ -66,5 +80,6 @@ const storiesInFeature = async (featureId) => {
 module.exports = {
   mongooseEpics,
   featuresInEpic,
-  storiesInFeature
+  storiesInFeature,
+  allEpics
 }

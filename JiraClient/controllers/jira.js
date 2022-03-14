@@ -3,80 +3,50 @@ const utils = require('../utils/utils')
 const mongooseQuery = require('../utils/mongooseQueries')
 const Issue = require('../models/issue')
 require('express-async-errors')
-const Ticket = require('../models/ticket')
 
 
-// const jira = utils.jiraClientV2()
-// const agile = utils.jiraAgileClient()
-
-// try {
-//   const epics = await jira.issueSearch.searchForIssuesUsingJql({
-//     jql: 'issuetype = Epic'
-//   });
-
-//   const epicsIssues = epics.issues.map(async (epic) => {
-//     // todo: if total exceeds maxResults = 50 do another round
-//     const issuesInEpic = await agile.epic.getIssuesForEpic({
-//       epicIdOrKey: epic.id
-//     })
-//     return {
-//       ...epic,
-//       issuesInEpic: issuesInEpic.issues
-//     }
-//   })
-//   const result = await Promise.all(epicsIssues)
-//   response.json(result)
-
-// } catch (error) {
-//   console.log(error)
-//   response.status(404).end()
-// }
-
-
-//
-jiraRouter.get('/epics', async (request, response) => {
-  // find all epics that with statuses
+jiraRouter.get('/featureTable', async (request, response) => {
   const epics = await mongooseQuery.mongooseEpics()
-  //console.log(epics.map(epic => epic.id))
-
-  // get all Features with an epic as parent
-  const ya = epics.map(async (epic) => {
+  // get all Features that has an epic as an outwardIssue link
+  const featureCollection = epics.map(async (epic) => {
     const featuresForEpic = await mongooseQuery.featuresInEpic(epic.id)
 
-    // next get all stories in the features. ^ returns a list of features.
-    // lets map through the features and query for stories. Then add a counter for story statuses
-    // return a feature doc that has the status fields...
     if (featuresForEpic.length === 0) return
     const mapStoriesToFeature = await featuresForEpic.map(async (feature) => {
       const storiesForFeature = await mongooseQuery.storiesInFeature(feature.id)
-      return storiesForFeature
+      let storyStatusesCount = {
+        toDo: 0,
+        inProgress: 0,
+        done: 0
+      }
+      const storiesForFeatureBasic = await storiesForFeature.map(story => {
+        storyStatusesCount = utils.switchCaseStatus(story.fields.status.statusCategory.name, storyStatusesCount)
+        return {
+          issueId: story.id,
+          key: story.key,
+          fields: {
+            parent: story.fields.parent,
+            issuetype: story.fields.issuetype,
+            status: story.fields.status,
+            fixVersions: story.fields.fixVersions
+          }
+        }
+      })
+      return {
+        featureName: feature.key,
+        toWhichEpic: epic.key,
+        storyStatusesCount,
+        storiesForFeatureBasic
+      }
     })
-    //console.log(await Promise.all(mapStoriesToFeature))
     return await Promise.all(mapStoriesToFeature)
 
   })
 
-  const resolveArray = await Promise.all(ya)
+  const resolveArray = await Promise.all(featureCollection)
   const filterUndefined = await resolveArray.flat().filter(a => a !== undefined)
-  response.json(filterUndefined.flat().map(issue => {
-    return {
-      id: issue.id,
-      key: issue.key,
-      fields: {
-        parents: issue.fields.parent,
-        issuetype: issue.fields.issuetype,
-        status: issue.fields.status,
-        fixVersions: issue.fields.fixVersions
-      }
-    }
-  }))
 
-
-
-  // const tp = await mongooseQuery.ticketsByParent('31658')
-  // console.log(tp.map(t => t.id))
-  // const feature = await mongooseQuery.featuresInEpic('31628')
-  // console.log(feature.map(f => f.id))
+  response.json(filterUndefined)
 
 })
 

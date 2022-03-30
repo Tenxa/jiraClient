@@ -2,9 +2,9 @@
 const JiraClient = require('jira-connector')
 const jwt = require('jsonwebtoken')
 const config = require('../utils/config')
-const Issue = require('../models/issue')
 const ChangeLog = require('../models/changeLog')
 const Jirajs = require('jira.js')
+const Ticket = require('../models/ticket')
 
 
 const createJiraToken = () => {
@@ -104,7 +104,7 @@ const isValidCall = (request) => {
 // Kahdesta alla olevista funktioista voisi tehdä geneerisempi toteutus...
 const issuePromises = (issues) => {
   return issues.map((async i => {
-    return Issue.findOneAndUpdate({ 'id': i.id }, i, { new: true, upsert: true })
+    return Ticket.findOneAndUpdate({ 'id': i.id }, i, { new: true, upsert: true })
       .then(updatedIssue => updatedIssue)
       .catch(error => {
         console.log(error)
@@ -130,11 +130,12 @@ const jqlSearch = (start, max, jql) => {
     //jql: 'ORDER BY Created DESC',
     jql,
     maxResults: max,
-    startAt: start
+    startAt: start,
+    expand: ['changelog']
   }
 }
 
-const changeLogsByIdArrayV2 = async (ids) => {
+const changeLogsByIdArrayV2 = async (ids, db) => {
   const jira = jiraClientV2()
 
   const logsById = ids.map(async (id) => {
@@ -148,6 +149,11 @@ const changeLogsByIdArrayV2 = async (ids) => {
   })
 
   const results = await Promise.all(logsById)
+  if (!db) {
+    console.log('NO DB')
+    return results
+  }
+
   const updateOrInsertCLToDb = await changelogUpsert(results)
   return await Promise.all(updateOrInsertCLToDb)
 }
@@ -195,6 +201,134 @@ const switchCaseStatus = (key, { toDo, inProgress, done } = { toDo: 0, inProgres
   }
 }
 
+const issueSearchLoopNoDB = async (startAt, maxResults, jql) => {
+  const jira = createJiraClientWithToken()
+  let issueArray = []
+  const issueSearch = await jira.search.search(jqlSearch(startAt, maxResults, jql))
+  issueSearch.issues.map(i => {
+    issueArray.push(i)
+  })
+  if (issueSearch.total > maxResults) {
+    const rounds = Math.ceil(issueSearch.total / maxResults)
+    for (i = 0; i < rounds - 1; i++) {
+      startAt += maxResults
+      const search = await jira.search.search(jqlSearch(startAt, maxResults, jql))
+      search.issues.map(i => {
+        issueArray.push(i)
+      })
+    }
+  }
+  return issueArray
+}
+
+
+const issueSearchLoopJiraV2 = async (startAt, maxResults, jql) => {
+  const jira = jiraClientV2()
+  let issueArray = []
+  const issueSearch = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(startAt, maxResults, jql))
+  issueSearch.issues.map(i => {
+    issueArray.push(i)
+  })
+  if (issueSearch.total > maxResults) {
+    const rounds = Math.ceil(issueSearch.total / maxResults)
+    for (i = 0; i < rounds - 1; i++) {
+      startAt += maxResults
+      const search = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(startAt, maxResults, jql))
+      search.issues.map(i => {
+        issueArray.push(i)
+      })
+    }
+  }
+  return issueArray
+}
+
+const isPertientChange = (key, obj, changeTo, time) => {
+  switch (key) {
+    case 'Parent':
+      return {
+        ...obj,
+        epic: changeTo,
+        time
+      }
+    case 'IssueParentAssociation':
+      return {
+        ...obj,
+        epic: changeTo,
+        time
+      }
+    case 'status':
+      return {
+        ...obj,
+        status: changeTo,
+        time
+      }
+    case 'project':
+      return {
+        ...obj,
+        project: changeTo,
+        time
+      }
+    case 'issuetype':
+      return {
+        ...obj,
+        issuetype: changeTo,
+        time
+      }
+    default:
+      return false
+  }
+}
+
+
+const getAllProjects = async () => {
+  const jira = jiraClientV2()
+
+  const projects = await jira.projects.getAllProjects({
+    expand: ['issueTypes', 'projectKeys', 'insight']
+  })
+  return projects
+}
+
+// DB upsert operation. Parses the issue id from self url
+const mapLogsWithIssueId = async () => {
+  const changelogs = await mongooseQuery.changeLogs()
+  changelogs.map((log) => {
+    const parseId = log.self ? log.self.split('issue/')[1].split('/')[0] : ''
+    const logWithIssueId = {
+      ...log._doc,
+      issueId: parseId
+    }
+    console.log(log.self)
+    return ChangeLog.findOneAndUpdate({ '_id': log._id }, logWithIssueId, { new: true, upsert: true })
+  })
+}
+
+const getDaysBetweenDates = (date1, date2) => {
+  const time1 = new Date(date1)
+  const time2 = new Date(date2)
+  const diffInMillis = time1 - time2
+  const days = Math.ceil(diffInMillis / (1000 * 3600 * 24))
+  return days
+}
+
+const parseDateyyyymmdd = (date) => {
+  const toDate = new Date(date)
+  return (toDate.getFullYear() + '-' + (toDate.getMonth() + 1) + '-' + toDate.getDate())
+}
+
+const createCombinationObjects = (daysInBetween, previousTicketDate, basicTicket, array) => {
+  let newTicketTime = new Date(previousTicketDate)
+  for (let i = 0; i < daysInBetween; i++) {
+    const newCombObj = {
+      ...basicTicket,
+      time: parseDateyyyymmdd(newTicketTime),
+    }
+    newTicketTime.setDate(newTicketTime.getDate() + 1)
+    array.push(newCombObj)
+  }
+}
+
+
 module.exports = {
   isValidCall,
   createJiraToken,
@@ -206,5 +340,14 @@ module.exports = {
   jiraClientV2,
   jiraAgileClient,
   changeLogsByIdArrayV2,
-  switchCaseStatus
+  switchCaseStatus,
+  issueSearchLoopNoDB,
+  issueSearchLoopJiraV2,
+  isPertientChange,
+  getAllProjects,
+  issuePromises,
+  mapLogsWithIssueId,
+  getDaysBetweenDates,
+  parseDateyyyymmdd,
+  createCombinationObjects
 }

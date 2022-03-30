@@ -1,19 +1,136 @@
 const jiraRouter = require('express').Router()
 const utils = require('../utils/utils')
 const mongooseQuery = require('../utils/mongooseQueries')
-const Issue = require('../models/issue')
+const storiesWithThemaAndEpic = require('../utils/storiesWithThemaAndEpic')
+const Ticket = require('../models/ticket')
 require('express-async-errors')
 
 
-jiraRouter.get('/featureTable', async (request, response) => {
-  const epics = await mongooseQuery.mongooseEpics()
-  // get all Features that has an epic as an outwardIssue link
-  const featureCollection = epics.map(async (epic) => {
-    const featuresForEpic = await mongooseQuery.featuresInEpic(epic.id)
+jiraRouter.get('/dataInit', async (request, response) => {
+  try {
+    // Currently we are getting all tickets that have theme and epic.
+    // TODO: get all issues and define themes, business processes, features and epics?
+    const themeEpic = await storiesWithThemaAndEpic.storiesWithThemaAndEpic()
+    const countCombinations = []
+    let combinationObjectList = []
+    const today = new Date()
+    for (let i = 0; i < themeEpic.length; i++) {
+      for (let j = 0; j < themeEpic[i].stories.length; j++) {
+        let basicTicket = {
+          theme: themeEpic[i].theme,
+          epic: null, //themeEpic[i].epic,
+          project: themeEpic[i].stories[j].project,
+          time: themeEpic[i].stories[j].time,
+          issuetype: themeEpic[i].stories[j].issuetype,
+          status: 'To Do', //status is to do by default?
+          //issueId: themeEpic[i].stories[j].key
+        }
 
-    if (featuresForEpic.length === 0) return
-    const mapStoriesToFeature = await featuresForEpic.map(async (feature) => {
-      const storiesForFeature = await mongooseQuery.storiesInFeature(feature.id)
+        const cl = await mongooseQuery.changelogByIssueId(themeEpic[i].stories[j].key)
+        // Create combination object from ticket creation day to today
+        if (cl.length === 0) {
+          basicTicket.epic = themeEpic[i].epic
+          let daysInBetween = utils.getDaysBetweenDates(utils.parseDateyyyymmdd(today), utils.parseDateyyyymmdd(basicTicket.time))
+          utils.createCombinationObjects((daysInBetween + 1), basicTicket.time, basicTicket, combinationObjectList)
+          continue
+        }
+
+        // Loop through changelog items and create combination objects.
+        let prevValueDate = null
+        for (let v = 0; v < cl[0].values.length; v++) {
+          const value = cl[0].values[v]
+
+          for (let z = 0; z < cl[0].values[v].items.length; z++) {
+            const item = cl[0].values[v].items[z]
+            if (utils.isPertientChange(item.field, basicTicket, item.toString, utils.parseDateyyyymmdd(value.created)) === false) {
+              continue
+            }
+
+            let daysInBetween = utils.getDaysBetweenDates(utils.parseDateyyyymmdd(value.created), utils.parseDateyyyymmdd(basicTicket.time))
+            const prevTime = prevValueDate ? prevValueDate : basicTicket.time
+
+            let ticketTime = new Date(prevTime)
+
+            // pushes combination objects to combinationObjectList[]
+            utils.createCombinationObjects((daysInBetween - 1), prevTime, basicTicket, combinationObjectList)
+            ticketTime.setDate(ticketTime.getDate() + daysInBetween)
+
+            prevValueDate = value.created
+            basicTicket = utils.isPertientChange(item.field, basicTicket, item.toString, ticketTime)
+
+            // Create combination objects from the last cl.value.item to today
+            if (v === cl[0].values.length - 1 && z === cl[0].values[v].items.length - 1) {
+              daysInBetween = utils.getDaysBetweenDates(utils.parseDateyyyymmdd(today), utils.parseDateyyyymmdd(prevValueDate))
+              utils.createCombinationObjects((daysInBetween + 1), prevValueDate, basicTicket, combinationObjectList)
+            }
+          }
+        }
+      }
+    }
+
+    // Loop through combinationObjectList and add +1 to numberOfIssues if duplicate
+    // else add to countCombinations
+    combinationObjectList.forEach(combo => {
+      console.log(countCombinations.length)
+      if (countCombinations.length === 0) {
+        countCombinations.push({
+          ...combo,
+          numberOfIssues: 1
+        })
+      } else {
+        const result = countCombinations.findIndex(obj => {
+          return (obj.theme === combo.theme
+            && obj.epic === combo.epic
+            && obj.project === combo.project
+            && obj.time === combo.time
+            && obj.issuetype === combo.issuetype
+            && obj.status === combo.status)
+        })
+        console.log('result', result)
+        if (result !== -1) {
+          console.log(countCombinations[result])
+          countCombinations[result].numberOfIssues++
+        }
+        if (result === -1) {
+          countCombinations.push({
+            ...combo,
+            numberOfIssues: 1
+          })
+        }
+      }
+    })
+
+    response.json(countCombinations)
+  } catch (error) {
+    console.log(error)
+    response.status(404).end('Error')
+  }
+})
+
+
+jiraRouter.get('/issueIdToChangelogs', async (request, response) => {
+  try {
+    utils.mapLogsWithIssueId()
+    //const resolved = await Promise.all(parseIssueIds)
+    response.status(200).send('Success')
+  } catch (error) {
+    console.log(error)
+    response.status(404).end('Error')
+  }
+})
+
+
+// ToDo: Calculate Relative size with standard deviation
+// ToDo: Active (Boolean) field
+jiraRouter.get('/featureTable', async (request, response) => {
+  const businessProcesses = await mongooseQuery.byIssuetypeName('Business Process')
+
+  const featureCollection = businessProcesses.map(async (bp) => {
+    const featuresForBp = await mongooseQuery.issuesByParentOrOutwardLinkId(bp.id, 'Feature')
+
+    if (featuresForBp.length === 0) return
+    const mapStoriesToFeature = await featuresForBp.map(async (feature) => {
+      const storiesForFeature = await mongooseQuery.issuesByParentOrOutwardLinkId(feature.id, 'Story')
       let storyStatusesCount = {
         toDo: 0,
         inProgress: 0,
@@ -34,35 +151,76 @@ jiraRouter.get('/featureTable', async (request, response) => {
       })
       return {
         featureName: feature.key,
-        toWhichEpic: epic.key,
+        toWhichBusinessProcess: bp.key,
         storyStatusesCount,
         storiesForFeatureBasic
       }
     })
-    return await Promise.all(mapStoriesToFeature)
 
+    const featuresData = await Promise.all(mapStoriesToFeature)
+    return featuresData
   })
 
   const resolveArray = await Promise.all(featureCollection)
   const filterUndefined = await resolveArray.flat().filter(a => a !== undefined)
 
   response.json(filterUndefined)
-
 })
 
-// Tarkista vielä vaikuttaako miten tuo changelog maxResult = 100 mitenkä
-// Tarvitaanko parametreja changelog "created", jotta ei haeta koko historiaa?
-// Toisaalta, grafana voi hoitaa haun tietokannasta omilla parametreilla?.
+
+// To Fix: Theme -> Epic -> Story
+jiraRouter.get('/epicsTable', async (request, response) => {
+  const themes = await mongooseQuery.byIssuetypeName('Theme')
+
+  const themeEpicStoryMapping = themes.map(async (theme) => {
+    const epicsForTheme = await mongooseQuery.issuesByParentOrOutwardLinkId(theme.id, 'Epic')
+    if (epicsForTheme.length === 0) return
+    const storiesForEpic = epicsForTheme.map(async (epic) => {
+      const stories = await mongooseQuery.storiesByParentId(epic.id, 'Story')
+      let storyStatusesCount = {
+        toDo: 0,
+        inProgress: 0,
+        done: 0
+      }
+      stories.forEach(story => storyStatusesCount = utils.switchCaseStatus(story.fields.status.statusCategory.name, storyStatusesCount))
+      return {
+        epicName: epic.key,
+        toWhichTheme: theme.key,
+        epicChildrenCount: stories.length,
+        storyStatusesCount
+      }
+    })
+    return await Promise.all(storiesForEpic)
+  })
+
+  const resolve = await Promise.all(themeEpicStoryMapping)
+  const filteredRes = resolve.flat().filter(e => e)
+  // To database filteredRes.forEach()
+  response.json(filteredRes)
+})
+
+
+jiraRouter.get('/projects', async (request, response) => {
+  try {
+    const projects = await utils.getAllProjects()
+    response.json(projects)
+  } catch (error) {
+    console.log(error)
+    response.status(404).end()
+  }
+})
+
+// maxResults defaults to 100
 jiraRouter.get('/cl', async (request, response, next) => {
-  const idAndMongoId = await Issue.find({}, { id: 1 })
+  const idAndMongoId = await Ticket.find({}, { id: 1 })
     .then(result => result)
     .catch(error => console.log(error))
 
   const idOnly = idAndMongoId.map(is => parseInt(is.id))
 
   try {
-    const updatedResults = await utils.changeLogsByIdArrayV2(idOnly)
-    //console.log(updatedResults)
+    // true = upsert to db, empty or false = NO DB
+    const updatedResults = await utils.changeLogsByIdArrayV2(idOnly, true)
     response.json({ ...updatedResults })
   } catch (error) {
     console.log(error)
@@ -70,16 +228,8 @@ jiraRouter.get('/cl', async (request, response, next) => {
   }
 })
 
-// 1. suodatetaan issue collecionista epicit ja viedään omaan epics collectioniin.
-// 2. Tehdäänkö Epic collectioni tietokantaan. Vai käytetäänkö tätä sovellista rajapintana
-// Grafanalle. Jolloin riittäisi laittaa suodatuksen tulos responseen.
-// 3. Epicit suoraan jirasta saadaan /search endpointista 
-jiraRouter.get('/epicsFromDB', async (request, response) => {
-  const epicsFromDb = await Issue.find({ 'fields.issuetype.name': "Epic" })
-  response.json(epicsFromDb)
-})
 
-// Upserttaa samalla tietokantaan.
+// Upserts to db.
 jiraRouter.post('/search', async (request, response) => {
   if (!request.body.jql) {
     return response.send({
@@ -110,9 +260,6 @@ jiraRouter.get('/:id', async (request, response) => {
 })
 
 
-
-// Käyttää Jira /search endpointtia ja hakee kaikki issuet looppaamalla,
-// jos kaikki ei mahdu yhteen responseen.
 jiraRouter.post('/', async (request, response, next) => {
   console.log('Getting all issues with Search');
 
@@ -123,7 +270,9 @@ jiraRouter.post('/', async (request, response, next) => {
   let jql = 'ORDER BY Created DESC'
 
   try {
-    const resArray = await utils.issueSearchLoop(startAt, maxResults, jql)
+    //const resArray = await utils.issueSearchLoop(startAt, maxResults, jql)
+    const resArray = await utils.issueSearchLoopJiraV2(startAt, maxResults, jql)
+    await utils.issuePromises(resArray)
     response.json({ ...resArray })
   } catch (error) {
     console.log('error at api/jira/', error)

@@ -1,74 +1,38 @@
 const Ticket = require('../models/ticket')
+const ChangeLog = require('../models/changeLog')
 
 
-const allEpics = async () => {
+const byIssuetypeName = async (name) => {
   return await Ticket.find({
-    'fields.issuetype.name': 'Epic'
+    'fields.issuetype.name': name
   })
 }
 
-const mongooseEpics = async () => {
+const issuesByParentOrOutwardLinkId = async (issueId, issuetype) => {
   return await Ticket.find({
     $and: [
       {
         $or: [
           {
-            'fields.status.statusCategory.name': 'To Do'
+            'fields.issuelinks.outwardIssue.id': issueId
           },
           {
-            'fields.status.statusCategory.name': 'In Progress'
-          },
-          {
-            'fields.status.statusCategory.name': 'Done'
-          }
-        ]
-      },
-      {
-        'fields.issuetype.name': 'Epic'
-      }
-    ]
-  })
-}
-
-// There are 0 Features with epic as parent, but we'll leave it there on the query
-const featuresInEpic = async (epicId) => {
-  return await Ticket.find({
-    $and: [
-      {
-        $or: [
-          {
-            'fields.issuelinks.outwardIssue.id': epicId
-          },
-          {
-            'fields.parent.id': epicId
+            'fields.parent.id': issueId
           },
         ],
       },
       {
-        'fields.issuetype.name': 'Feature'
+        'fields.issuetype.name': issuetype
       }
     ]
   })
 }
 
-const storiesInFeature = async (featureId) => {
+const storiesByOutwardLinkId = async (linkId) => {
   return await Ticket.find({
     $and: [
       {
-        $or: [
-          {
-            'fields.status.statusCategory.name': 'To Do'
-          },
-          {
-            'fields.status.statusCategory.name': 'In Progress'
-          },
-          {
-            'fields.status.statusCategory.name': 'Done'
-          }
-        ]
-      },
-      {
-        'fields.issuelinks.outwardIssue.id': featureId
+        'fields.issuelinks.outwardIssue.id': linkId
       },
       {
         'fields.issuetype.name': 'Story'
@@ -77,9 +41,41 @@ const storiesInFeature = async (featureId) => {
   })
 }
 
+const storiesByParentId = async (parentId, issuetype) => {
+  return await Ticket.find({
+    $and: [
+      {
+        'fields.parent.id': parentId
+      },
+      {
+        'fields.issuetype.name': issuetype
+      }
+    ]
+  })
+}
+
+const ticketByKey = async (key) => {
+  return await Ticket.find({
+    'key': key
+  })
+}
+
+const changeLogs = async () => {
+  return await ChangeLog.find({})
+}
+
+// use issue.key; bad naming for issueId
+const changelogByIssueId = async (key) => {
+  return await ChangeLog.find({'issueId': key})
+}
+
+
 module.exports = {
-  mongooseEpics,
-  featuresInEpic,
-  storiesInFeature,
-  allEpics
+  storiesByParentId,
+  byIssuetypeName,
+  storiesByOutwardLinkId,
+  issuesByParentOrOutwardLinkId,
+  changeLogs,
+  changelogByIssueId,
+  ticketByKey
 }

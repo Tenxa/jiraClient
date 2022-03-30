@@ -7,10 +7,7 @@ const changeLogSchema = new mongoose.Schema({
     startAt: Number,
     total: Number,
     isLast: Boolean,
-    issueId: {
-        type: String,
-        required: true,
-    },
+    issueId: String,
     values: [
         {
             id: String,

@@ -5,6 +5,8 @@ const config = require('../utils/config')
 const ChangeLog = require('../models/changeLog')
 const Jirajs = require('jira.js')
 const Ticket = require('../models/ticket')
+const Cfd = require('../models/cfdTable')
+const async = require('async')
 
 
 const createJiraToken = () => {
@@ -122,8 +124,30 @@ const changelogUpsert = (issues) => {
         return error
       })
   }))
+}
+
+// loops through array and will increment numberOfIssues by 1
+const cfdUpsert = async (array) => {
+  async.eachSeries(array, (obj, done) => {
+    Cfd.findOneAndUpdate({
+      'theme': obj.theme,
+      'epic': obj.epic,
+      'project': obj.project,
+      'time': obj.time,
+      'issuetype': obj.issuetype,
+      'status': obj.status
+    }, { $inc: { numberOfIssues: 1 } }, { new: true, upsert: true }, done)
+  }, (error) => {
+    if (error) {
+      console.log(error)
+    } else {
+      console.log('done')
+    }
+    
+  })
 
 }
+
 
 const jqlSearch = (start, max, jql) => {
   return {
@@ -349,5 +373,6 @@ module.exports = {
   mapLogsWithIssueId,
   getDaysBetweenDates,
   parseDateyyyymmdd,
-  createCombinationObjects
+  createCombinationObjects,
+  cfdUpsert,
 }

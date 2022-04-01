@@ -2,20 +2,24 @@ const mongoose = require('mongoose')
 
 // Tehdään päivitys kyselyt issueId mukaan.
 // Jätetty kommenteiksi kenttiä, jos tarvii tulevaisuudessa formatointia
-const featureSchema = new mongoose.Schema({
-    featureName: String,
-    toWhichEpic: String,
+const epicSchema = new mongoose.Schema({
+    epicName: String,
+    toWhichTheme: String,
     storyStatusesCount: {
         toDo: Number,
         inProgress: Number,
         done: Number
     },
     relativeSize: Number,
-    active: Boolean
+    active: Boolean,
+    delta: Number,
+    monteCarloCurrent: Date,
+    monteCarloRealistic: Date,
+    monteCarloPessimistic: Date
 })
 
 
-featureSchema.set('toJSON', {
+epicSchema.set('toJSON', {
     transform: (document, returnedObject) => {
         returnedObject.id = returnedObject._id.toString()
         delete returnedObject._id
@@ -23,6 +27,6 @@ featureSchema.set('toJSON', {
     }
 })
 
-const Feature = mongoose.model('Feature', featureSchema)
+const Epic = mongoose.model('Epic', epicSchema)
 
-module.exports = Feature
+module.exports = Epic

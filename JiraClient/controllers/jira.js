@@ -8,7 +8,7 @@ require('express-async-errors')
 
 jiraRouter.get('/dataInit', async (request, response) => {
   try {
-    // Currently we are getting all tickets that have theme and epic.
+    // Currently we are getting all tickets that have theme and epic with a mongodb query
     // TODO: get all issues and define themes, business processes, features and epics?
     const themeEpic = await storiesWithThemaAndEpic.storiesWithThemaAndEpic()
     const countCombinations = []
@@ -18,7 +18,7 @@ jiraRouter.get('/dataInit', async (request, response) => {
       for (let j = 0; j < themeEpic[i].stories.length; j++) {
         let basicTicket = {
           theme: themeEpic[i].theme,
-          epic: null, //themeEpic[i].epic,
+          epic: null,
           project: themeEpic[i].stories[j].project,
           time: themeEpic[i].stories[j].time,
           issuetype: themeEpic[i].stories[j].issuetype,
@@ -68,39 +68,13 @@ jiraRouter.get('/dataInit', async (request, response) => {
       }
     }
 
-    // Loop through combinationObjectList and add +1 to numberOfIssues if duplicate
-    // else add to countCombinations
-    combinationObjectList.forEach(combo => {
-      console.log(countCombinations.length)
-      if (countCombinations.length === 0) {
-        countCombinations.push({
-          ...combo,
-          numberOfIssues: 1
-        })
-      } else {
-        const result = countCombinations.findIndex(obj => {
-          return (obj.theme === combo.theme
-            && obj.epic === combo.epic
-            && obj.project === combo.project
-            && obj.time === combo.time
-            && obj.issuetype === combo.issuetype
-            && obj.status === combo.status)
-        })
-        console.log('result', result)
-        if (result !== -1) {
-          console.log(countCombinations[result])
-          countCombinations[result].numberOfIssues++
-        }
-        if (result === -1) {
-          countCombinations.push({
-            ...combo,
-            numberOfIssues: 1
-          })
-        }
-      }
-    })
+    console.log(combinationObjectList.length)
+    // Could do upsertion in the loop above also
+    // Loop through combinationObjectList and increment 1 to numberOfIssues if in db
+    await utils.cfdUpsert(combinationObjectList)
 
-    response.json(countCombinations)
+    // Will response success while db operations are still processing...
+    response.json('Success')
   } catch (error) {
     console.log(error)
     response.status(404).end('Error')
@@ -119,7 +93,7 @@ jiraRouter.get('/issueIdToChangelogs', async (request, response) => {
   }
 })
 
-
+ 
 // ToDo: Calculate Relative size with standard deviation
 // ToDo: Active (Boolean) field
 jiraRouter.get('/featureTable', async (request, response) => {
@@ -168,6 +142,7 @@ jiraRouter.get('/featureTable', async (request, response) => {
 })
 
 
+// 
 // To Fix: Theme -> Epic -> Story
 jiraRouter.get('/epicsTable', async (request, response) => {
   const themes = await mongooseQuery.byIssuetypeName('Theme')

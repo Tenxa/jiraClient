@@ -54,6 +54,29 @@ const storiesByParentId = async (parentId, issuetype) => {
   })
 }
 
+const storiesTasksAndBugsByParentId = async (parentId) => {
+  return await Ticket.find({
+    $and: [
+      {
+        'fields.parent.id': parentId
+      },
+      {
+        $or: [
+          {
+            'fields.issuetype.name': 'Story'
+          },
+          {
+            'fields.issuetype.name': 'Task'
+          },
+          {
+            'fields.issuetype.name': 'Bug'
+          },
+        ]
+      },
+    ]
+  })
+}
+
 const ticketByKey = async (key) => {
   return await Ticket.find({
     'key': key
@@ -66,7 +89,7 @@ const changeLogs = async () => {
 
 // use issue.key; bad naming for issueId
 const changelogByIssueId = async (key) => {
-  return await ChangeLog.find({'issueId': key})
+  return await ChangeLog.find({ 'issueId': key })
 }
 
 
@@ -77,5 +100,6 @@ module.exports = {
   issuesByParentOrOutwardLinkId,
   changeLogs,
   changelogByIssueId,
-  ticketByKey
+  ticketByKey,
+  storiesTasksAndBugsByParentId
 }

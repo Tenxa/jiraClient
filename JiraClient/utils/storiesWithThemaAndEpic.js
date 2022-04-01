@@ -10,8 +10,7 @@
 // status               To Do
 // numberOfIssues       17
 
-// Katsotaan näin alkuun vain storyja joilla on theme ja epic.
-// Haluan palauttaa vain 
+// Palautetaan Storyt, Taskit ja Bugit joilla on theme ja epic.
 
 const utils = require('./utils')
 const mongooseQuery = require('./mongooseQueries')
@@ -28,7 +27,7 @@ const storiesWithThemaAndEpic = async () => {
         toDo: 0,
         inProgress: 0,
         done: 0
-      }
+      } 
       stories.forEach(story => storyStatusesCount = utils.switchCaseStatus(story.fields.status.statusCategory.name, storyStatusesCount))
       return {
         theme: theme.key,

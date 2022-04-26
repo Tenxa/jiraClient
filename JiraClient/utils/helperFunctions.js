@@ -589,6 +589,14 @@ const activePromise = async (lastYear, epicOrfeatureFlag, epicOrFeature) => {
   return active
 }
 
+// Calculates the ratio of open and closed tickets (open != done, closed = done)
+const calculateDelta = ({toDo, inProgress, done}) => {
+  const closed = (toDo + inProgress)
+  if (done === 0 || closed === 0 && done === 0) return 0
+  const delta = closed / done
+  return delta
+}
+
 module.exports = {
   isValidCall,
   createJiraToken,
@@ -617,5 +625,6 @@ module.exports = {
   isActive,
   getStandardDeviation,
   activePromise,
-  switchCaseStatus
+  switchCaseStatus,
+  calculateDelta
 }

@@ -115,12 +115,14 @@ jiraRouter.get('/insertEpics', async (request, response) => {
   const epicPromises = themeEpic.map(async (e) => {
     const active = await utils.helpers.activePromise(lastYear, true, e)
     const relativeSize = (e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress + e.storyStatusesCount.done) / standardDeviation
+    const delta = await utils.helpers.calculateDelta(e.storyStatusesCount)
     return {
       epic: e.epic,
       theme: e.theme,
       storyStatusesCount: e.storyStatusesCount,
       relativeSize,
-      active
+      active,
+      delta
     }
   })
 
@@ -189,6 +191,7 @@ jiraRouter.get('/epicsTable', async (request, response) => {
     }
     const cfdByDate = await utils.mongooseQueries.cfdEpicByDate(configuredDate, e.epic)
     const active = await utils.helpers.isActive(cfdByDate, e)
+    const delta = await utils.helpers.calculateDelta(e.storyStatusesCount)
 
     return {
       theme: e.theme,
@@ -196,12 +199,22 @@ jiraRouter.get('/epicsTable', async (request, response) => {
       storyStatusesCount: e.storyStatusesCount,
       relativeSize: e.relativeSize,
       active,
+      delta
     }
   })
   const resolvedPromises = await Promise.all(mapDataToEpics)
   response.json(resolvedPromises.flat())
 })
 
+jiraRouter.get('/test', async (request, response) => {
+  const counts = {
+    toDo: 5,
+    inProgress: 5,
+    done: 15
+  }
+  console.log(typeof utils.helpers.calculateDelta(counts))
+  response.json({ delta: utils.helpers.calculateDelta(counts) })
+})
 
 jiraRouter.get('/projects', async (request, response) => {
   try {

@@ -2,6 +2,7 @@ const Ticket = require('../models/ticket')
 const ChangeLog = require('../models/changeLog')
 const Cfd = require('../models/cfdTable')
 const Feature = require('../models/feature')
+const Epic = require('../models/epic')
 
 
 const byIssuetypeName = async (name) => {
@@ -150,6 +151,18 @@ const cfdByEpicAndStatus = async (key, status) => {
   return await Cfd.find({ 'epic': key, 'status': status })
 }
 
+const insertEpics = async (epics) => {
+  return await Epic.insertMany([...epics])
+}
+
+const getEpicsFromDB = async () => {
+  return await Epic.find({})
+}
+
+const getEpicByKeyFromDB = async (key) => {
+  return await Epic.find({ 'epic': key })
+}
+
 const insertFeatures = async (features) => {
   return await Feature.insertMany([...features])
 }
@@ -188,6 +201,28 @@ const cfdFeatureByDate = async (date, featureName) => {
   })
 }
 
+const cfdEpicByDate = async (date, epicName) => {
+  const startOfDay = new Date(date)
+  startOfDay.setUTCHours(0, 0, 0, 0)
+
+  const endOfDay = new Date(date)
+  endOfDay.setUTCHours(23, 59, 59, 999)
+
+  return await Cfd.find({
+    $and: [
+      { 'time': { '$gte': startOfDay, '$lte': endOfDay } },
+      { 'epic': epicName },
+      {
+        $or: [
+          { 'status': 'To Do' },
+          { 'status': 'Done' },
+          { 'status': 'In Progress' },
+        ]
+      }
+    ]
+  })
+}
+
 module.exports = {
   storiesByParentId,
   byIssuetypeName,
@@ -204,7 +239,11 @@ module.exports = {
   inwardLinksForFeature,
   insertFeatures,
   getFeaturesFromDB,
+  getEpicsFromDB,
   cfdFeatureByDate,
   insertCfds,
-  getFeatureByKeyFromDB
+  getFeatureByKeyFromDB,
+  getEpicByKeyFromDB,
+  cfdEpicByDate,
+  insertEpics
 }

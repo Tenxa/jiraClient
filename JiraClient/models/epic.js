@@ -2,8 +2,8 @@ const mongoose = require('mongoose')
 
 
 const epicSchema = new mongoose.Schema({
-    epicName: String,
-    toWhichTheme: String,
+    epic: String,
+    theme: String,
     storyStatusesCount: {
         toDo: Number,
         inProgress: Number,

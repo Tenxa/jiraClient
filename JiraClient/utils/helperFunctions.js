@@ -425,7 +425,7 @@ const foundIndexEorF = (array, newCombObj, epicOrFeature) => {
         e.issuetype === newCombObj.issuetype &&
         e.status === newCombObj.status)
     })
-    return found
+  return found
 }
 
 const createCombinationObjects = async (daysInBetween, previousTicketDate, basicTicket, array, epicOrFeature) => {
@@ -578,12 +578,14 @@ const getStandardDeviation = (arr) => {
   return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
 }
 
-const activePromise = async (lastYear, f) => {
-  let cfdByDate = await mongooseQuery.cfdFeatureByDate(lastYear, f.feature)
+const activePromise = async (lastYear, epicOrfeatureFlag, epicOrFeature) => {
+  let cfdByDate = epicOrfeatureFlag
+    ? await mongooseQuery.cfdEpicByDate(lastYear, epicOrFeature.epic)
+    : await mongooseQuery.cfdFeatureByDate(lastYear, epicOrFeature.feature)
   if (cfdByDate.length === 0) {
     return true
   }
-  const active = isActive(cfdByDate, f)
+  const active = isActive(cfdByDate, epicOrFeature)
   return active
 }
 

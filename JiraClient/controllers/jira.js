@@ -2,7 +2,10 @@ const jiraRouter = require('express').Router()
 const utils = require('../utils')
 const Ticket = require('../models/ticket')
 const Feature = require('../models/feature')
+const Epic = require('../models/epic')
 require('express-async-errors')
+
+
 
 
 
@@ -68,7 +71,7 @@ jiraRouter.get('/insertFeatures', async (request, response) => {
   const standardDeviation = utils.helpers.getStandardDeviation(statusCounts)
 
   const featurePromises = filterUndefined.map(async (f) => {
-    const active = await utils.helpers.activePromise(lastYear, f)
+    const active = await utils.helpers.activePromise(lastYear, false, f)
     // Max value to 3?
     const relativeSize = (f.storyStatusesCount.toDo + f.storyStatusesCount.inProgress + f.storyStatusesCount.done) / standardDeviation
 
@@ -80,9 +83,50 @@ jiraRouter.get('/insertFeatures', async (request, response) => {
       active
     }
   })
-  const insertion = utils.mongooseQueries.insertFeatures(await Promise.all(featurePromises))
+  const resolvedPromises = await Promise.all(featurePromises)
+  await utils.mongooseQueries.insertFeatures(resolvedPromises)
 
-  response.json(insertion)
+  response.json(resolvedPromises)
+})
+
+
+
+jiraRouter.get('/insertEpics', async (request, response) => {
+  try {
+    await Epic.collection.drop()
+  } catch (error) {
+    if (error.code === 26) {
+      console.log('namespace not found')
+    } else {
+      throw error;
+    }
+  }
+
+  const lastYear = new Date()
+  lastYear.setFullYear(lastYear.getFullYear() - 1)
+
+  const themeEpic = await utils.storiesWithThemaAndEpic.storiesWithThemaAndEpic()
+
+  const statusCounts = themeEpic.map(e => {
+    return e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress + e.storyStatusesCount.done
+  })
+  const standardDeviation = utils.helpers.getStandardDeviation(statusCounts)
+
+  const epicPromises = themeEpic.map(async (e) => {
+    const active = await utils.helpers.activePromise(lastYear, true, e)
+    const relativeSize = (e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress + e.storyStatusesCount.done) / standardDeviation
+    return {
+      epic: e.epic,
+      theme: e.theme,
+      storyStatusesCount: e.storyStatusesCount,
+      relativeSize,
+      active
+    }
+  })
+
+  const resolvedPromises = await Promise.all(epicPromises)
+  await utils.mongooseQueries.insertEpics(resolvedPromises)
+  response.json(resolvedPromises)
 })
 
 /* 
@@ -112,8 +156,8 @@ jiraRouter.get('/featureTable', async (request, response) => {
       active,
     }
   })
-
-  response.json(await Promise.all(mapDataToFeatures))
+  const resolvedPromises = await Promise.all(mapDataToFeatures)
+  response.json(resolvedPromises.flat())
 })
 
 
@@ -125,31 +169,37 @@ jiraRouter.get('/epicTableByKeyAndStatus', async (request, response) => {
   response.json(epicsSortedByDate)
 })
 
+
+
 // We'll probably have to take Takt Times from Todo to Done as in some cases the tickets
 // go straight from todo -> done, which is not accurate
 // There are many cases where Ticket goes from In progress -> Done in the same day
 // so there's no trace of inProgress status in the cfd collection.
-
 // In some cases our test data in cfd collection have only To Do statuses because test data is missing some changelogs
 
 // To Fix: Theme -> Epic -> Story
 jiraRouter.get('/epicsTable', async (request, response) => {
-  const themes = await utils.mongooseQueries.byIssuetypeName('Theme')
+  const configuredDate = request.body.configuredDate ? request.body.configuredDate : null
 
-  const themeEpicStoryMapping = themes.map(async (theme) => {
-    const epicsForTheme = await utils.mongooseQueries.issuesByParentOrOutwardLinkId(theme.id, 'Epic')
-    if (epicsForTheme.length === 0) return
-    const storiesForEpic = epicsForTheme.map(async (epic) => {
-      const stories = await utils.mongooseQueries.storiesByParentId(epic.id, 'Story')
-      return utils.helpers.countStatuses(stories, epic.key, theme.key, true)
-    })
-    return await Promise.all(storiesForEpic)
+  const allEpics = await utils.mongooseQueries.getEpicsFromDB()
+
+  const mapDataToEpics = allEpics.map(async (e) => {
+    if (!configuredDate) {
+      return await utils.mongooseQueries.getEpicByKeyFromDB(e.epic)
+    }
+    const cfdByDate = await utils.mongooseQueries.cfdEpicByDate(configuredDate, e.epic)
+    const active = await utils.helpers.isActive(cfdByDate, e)
+
+    return {
+      theme: e.theme,
+      epic: e.epic,
+      storyStatusesCount: e.storyStatusesCount,
+      relativeSize: e.relativeSize,
+      active,
+    }
   })
-
-  const resolve = await Promise.all(themeEpicStoryMapping)
-  const filteredRes = resolve.flat().filter(e => e)
-  // To database => filteredRes.forEach()
-  response.json(filteredRes)
+  const resolvedPromises = await Promise.all(mapDataToEpics)
+  response.json(resolvedPromises.flat())
 })
 
 

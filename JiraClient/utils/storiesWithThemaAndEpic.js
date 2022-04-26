@@ -20,19 +20,23 @@ const storiesWithThemaAndEpic = async () => {
 
   const themeEpicStoryMapping = themes.map(async (theme) => {
     const epicsForTheme = await mongooseQuery.issuesByParentOrOutwardLinkId(theme.id, 'Epic')
+    
     if (epicsForTheme.length === 0) return
     const storiesForEpic = epicsForTheme.map(async (epic) => {
+      //
       const stories = await mongooseQuery.storiesByParentId(epic.id, 'Story')
       let storyStatusesCount = {
         toDo: 0,
         inProgress: 0,
         done: 0
-      } 
+      }
+
       stories.forEach(story => storyStatusesCount = utils.switchCaseStatus(story.fields.status.statusCategory.name, storyStatusesCount))
       return {
         theme: theme.key,
         epic: epic.key,
         numberOfIssues: stories.length,
+        storyStatusesCount,
         stories: stories.map(story => {
           return {
             id: story.id,

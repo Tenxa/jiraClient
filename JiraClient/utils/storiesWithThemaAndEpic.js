@@ -10,11 +10,11 @@
 // status               To Do
 // numberOfIssues       17
 
-// Palautetaan Storyt, Taskit ja Bugit joilla on theme ja epic.
 
-const utils = require('./utils')
+const utils = require('./helperFunctions')
 const mongooseQuery = require('./mongooseQueries')
 
+// Palautetaan Storyt, Taskit ja Bugit joilla on theme ja epic. (Tietokannasta)
 const storiesWithThemaAndEpic = async () => {
   const themes = await mongooseQuery.byIssuetypeName('Theme')
 

@@ -1,7 +1,6 @@
 const mongoose = require('mongoose')
 
-// Tehdään päivitys kyselyt issueId mukaan.
-// Jätetty kommenteiksi kenttiä, jos tarvii tulevaisuudessa formatointia
+
 const epicSchema = new mongoose.Schema({
     epicName: String,
     toWhichTheme: String,
@@ -17,7 +16,6 @@ const epicSchema = new mongoose.Schema({
     monteCarloRealistic: Date,
     monteCarloPessimistic: Date
 })
-
 
 epicSchema.set('toJSON', {
     transform: (document, returnedObject) => {

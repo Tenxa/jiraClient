@@ -3,8 +3,8 @@ const mongoose = require('mongoose')
 // Tehdään päivitys kyselyt issueId mukaan.
 // Jätetty kommenteiksi kenttiä, jos tarvii tulevaisuudessa formatointia
 const featureSchema = new mongoose.Schema({
-    featureName: String,
-    toWhichEpic: String,
+    feature: String,
+    businessProcess: String,
     storyStatusesCount: {
         toDo: Number,
         inProgress: Number,

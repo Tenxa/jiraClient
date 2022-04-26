@@ -1,5 +1,5 @@
 const devlabsRouter = require('express').Router()
-const utils = require('../utils/utils')
+const utils = require('../utils')
 const config = require('../utils/config')
 const JiraClient = require('jira-connector')
 const fs = require('fs');
@@ -62,7 +62,7 @@ devlabsRouter.get('/search', async (request, response) => {
     }
   })
 
-  //const jira = utils.createJiraClientWithToken()
+  //const jira = utils.helpers.createJiraClientWithToken()
   //console.log('req body: ', request.body.jql)
 
 
@@ -79,7 +79,7 @@ devlabsRouter.get('/search', async (request, response) => {
 
 devlabsRouter.post('/write2file', async (request, response) => {
   // validating own call
-  validCall = utils.isValidCall(request)
+  validCall = utils.helpers.isValidCall(request)
   if (validCall.statuscode !== 200) {
     response.status(validCall.statuscode).json(validCall.status)
     console.log('not valid call');
@@ -97,7 +97,7 @@ devlabsRouter.post('/write2file', async (request, response) => {
 
 devlabsRouter.post('/', async (request, response) => {
   // validating own call
-  validCall = utils.isValidCall(request)
+  validCall = utils.helpers.isValidCall(request)
   if (validCall.statuscode !== 200) {
     response.status(validCall.statuscode).json(validCall.status)
     console.log('not valid call');
@@ -115,7 +115,7 @@ const jiraDeleteAll = async (array) => {
   const jira = new JiraClient({
     host: config.jiraURL,
     basic_auth: {
-      base64: utils.createJiraToken()
+      base64: utils.helpers.createJiraToken()
     }
   })
 
@@ -139,7 +139,7 @@ const jiraDeleteAll = async (array) => {
 //   const jira = new JiraClient({
 //     host: config.jiraURL,
 //     basic_auth: {
-//       base64: utils.createJiraToken()
+//       base64: utils.helpers.createJiraToken()
 //     }
 //   })
 //   const issue = jira.issue.getIssue({
@@ -155,7 +155,7 @@ const jiraCreateCalls = async (array) => {
   const jira = new JiraClient({
     host: config.jiraURL,
     basic_auth: {
-      base64: utils.createJiraToken()
+      base64: utils.helpers.createJiraToken()
     }
   })
   try {

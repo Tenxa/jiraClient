@@ -3,12 +3,14 @@ const mongoose = require('mongoose')
 const cfdSchema = new mongoose.Schema({
     theme: String,
     epic: String,
-    project: String,
-    time: String,
-    issuetype: String,
-    status: String,
+    businessProcess: String,
+    feature: String,
+    project: {type: String, required: true},
+    time: {type: Date, required: true},
+    issuetype: {type: String, required: true},
+    status: {type: String, required: true},
     numberOfIssues: { type: Number, default: 0 },
-    configurationDate: { type: Date, default: Date.now() }
+    configurationDate: Date
 })
 
 

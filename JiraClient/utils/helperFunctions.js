@@ -1,12 +1,13 @@
 
 const JiraClient = require('jira-connector')
 const jwt = require('jsonwebtoken')
-const config = require('../utils/config')
+const config = require('./config')
 const ChangeLog = require('../models/changeLog')
 const Jirajs = require('jira.js')
 const Ticket = require('../models/ticket')
 const Cfd = require('../models/cfdTable')
 const async = require('async')
+const mongooseQuery = require('./mongooseQueries')
 
 
 const createJiraToken = () => {
@@ -127,7 +128,7 @@ const changelogUpsert = (issues) => {
 }
 
 // loops through array and will increment numberOfIssues by 1
-const cfdUpsert = async (array) => {
+const cfdEpicUpsert = async (array) => {
   async.eachSeries(array, (obj, done) => {
     Cfd.findOneAndUpdate({
       'theme': obj.theme,
@@ -143,10 +144,30 @@ const cfdUpsert = async (array) => {
     } else {
       console.log('done')
     }
-    
   })
-
 }
+
+// loops through array and will increment numberOfIssues by 1
+const cfdFeatureUpsert = async (array) => {
+  async.eachSeries(array, (obj, done) => {
+    Cfd.findOneAndUpdate({
+      'businessProcess': obj.businessProcess,
+      'feature': obj.feature,
+      'project': obj.project,
+      'time': obj.time,
+      'issuetype': obj.issuetype,
+      'status': obj.status
+    }, { $inc: { numberOfIssues: 1 } }, { new: true, upsert: true }, done)
+  }, (error) => {
+    if (error) {
+      console.log(error)
+    } else {
+      console.log('done')
+    }
+  })
+}
+
+
 
 
 const jqlSearch = (start, max, jql) => {
@@ -155,7 +176,7 @@ const jqlSearch = (start, max, jql) => {
     jql,
     maxResults: max,
     startAt: start,
-    expand: ['changelog']
+    //expand: ['changelog']
   }
 }
 
@@ -266,7 +287,50 @@ const issueSearchLoopJiraV2 = async (startAt, maxResults, jql) => {
   return issueArray
 }
 
-const isPertientChange = (key, obj, changeTo, time) => {
+const isPertientChangeFeature = (key, obj, changeTo, time) => {
+  switch (key) {
+    case 'Link':
+      if (changeTo === null || changeTo === undefined) return false
+      if (changeTo.includes('This issue belongs to Feature')) {
+        return {
+          ...obj,
+          feature: changeTo.split('Feature ')[1].trim(),
+          time
+        }
+      } else {
+        return false
+      }
+    case 'IssueParentAssociation':
+      return {
+        ...obj,
+        feature: changeTo,
+        time
+      }
+    case 'status':
+      if (changeTo !== 'To Do' || changeTo !== 'In Progress' || changeTo !== 'Done') return false
+      return {
+        ...obj,
+        status: changeTo,
+        time
+      }
+    case 'project':
+      return {
+        ...obj,
+        project: changeTo,
+        time
+      }
+    case 'issuetype':
+      return {
+        ...obj,
+        issuetype: changeTo,
+        time
+      }
+    default:
+      return false
+  }
+}
+
+const isPertientChangeEpic = (key, obj, changeTo, time) => {
   switch (key) {
     case 'Parent':
       return {
@@ -340,18 +404,188 @@ const parseDateyyyymmdd = (date) => {
   return (toDate.getFullYear() + '-' + (toDate.getMonth() + 1) + '-' + toDate.getDate())
 }
 
-const createCombinationObjects = (daysInBetween, previousTicketDate, basicTicket, array) => {
-  let newTicketTime = new Date(previousTicketDate)
-  for (let i = 0; i < daysInBetween; i++) {
-    const newCombObj = {
-      ...basicTicket,
-      time: parseDateyyyymmdd(newTicketTime),
-    }
-    newTicketTime.setDate(newTicketTime.getDate() + 1)
-    array.push(newCombObj)
-  }
+// true => epic, false => feature
+const foundIndexEorF = (array, newCombObj, epicOrFeature) => {
+  const found = epicOrFeature ?
+    array.findIndex(e => {
+      return (
+        e.businessProcess === newCombObj.businessProcess &&
+        e.epic === newCombObj.epic &&
+        e.project === newCombObj.project &&
+        e.time === newCombObj.time &&
+        e.issuetype === newCombObj.issuetype &&
+        e.status === newCombObj.status)
+    })
+    : array.findIndex(e => {
+      return (
+        e.businessProcess === newCombObj.businessProcess &&
+        e.feature === newCombObj.feature &&
+        e.project === newCombObj.project &&
+        e.time === newCombObj.time &&
+        e.issuetype === newCombObj.issuetype &&
+        e.status === newCombObj.status)
+    })
+    return found
 }
 
+const createCombinationObjects = async (daysInBetween, previousTicketDate, basicTicket, array, epicOrFeature) => {
+  try {
+    if (basicTicket.feature === null || basicTicket === null || basicTicket.epic === null) return
+    let newTicketTime = new Date(previousTicketDate)
+    let today = parseDateyyyymmdd(new Date())
+    let key = basicTicket.feature ? basicTicket.feature : basicTicket.epic
+    const { issueId, ...basicData } = basicTicket
+
+    for (let i = 0; i < daysInBetween; i++) {
+      const newCombObj = {
+        ...basicData,
+        numberOfIssues: 1,
+        time: parseDateyyyymmdd(newTicketTime),
+        configurationDate: today
+      }
+      newTicketTime.setDate(newTicketTime.getDate() + 1)
+      if (array.get(key) === undefined || array.get(key) === false) {
+        array.set(key, [newCombObj])
+      } else {
+        let foundIndex = foundIndexEorF(array.get(key), newCombObj, epicOrFeature)
+        if (foundIndex === -1) {
+          array.set(key, [...array.get(key), newCombObj])
+        } else {
+          array.get(key)[foundIndex].numberOfIssues += 1
+        }
+      }
+    }
+    console.log(array.size)
+  } catch (error) {
+    console.log(error)
+  }
+
+}
+
+const getAllFeatureData = async () => {
+  const businessProcesses = await mongooseQuery.byIssuetypeName('Business Process')
+
+  const featureCollection = businessProcesses.map(async (bp) => {
+    const featuresForBp = await mongooseQuery.issuesByParentOrOutwardLinkId(bp.id, 'Feature')
+
+    if (featuresForBp.length === 0) return
+    const mapStoriesToFeature = await featuresForBp.map(async (feature) => {
+      // could also just check stories from features inwardlinks with type.name === "Feature link" check 
+      const storiesForFeature = await mongooseQuery.issuesByParentOrOutwardLinkId(feature.id, 'Story')
+      let storyStatusesCount = {
+        toDo: 0,
+        inProgress: 0,
+        done: 0
+      }
+      const storiesForFeatureBasic = await storiesForFeature.map(story => {
+        const featureLinkFilter = story.fields.issuelinks.filter(link => link.type.name === 'Feature link')
+          .filter(link => link.hasOwnProperty('outwardIssue'))
+          .filter(link => link.outwardIssue.key === feature.key)
+
+        if (featureLinkFilter.length === 0) {
+          return
+        }
+        storyStatusesCount = switchCaseStatus(story.fields.status.statusCategory.name, storyStatusesCount)
+        return {
+          businessProcess: bp.key,
+          feature: feature.key,
+          issueId: story.id,
+          key: story.key,
+          issuetype: story.fields.issuetype.name,
+          status: story.fields.status.statusCategory.name,
+          project: story.fields.project.key,
+          time: story.fields.created
+        }
+      })
+      return {
+        featureName: feature.key,
+        toWhichBusinessProcess: bp.key,
+        storyStatusesCount,
+        storiesForFeatureBasic
+      }
+    })
+
+    const featuresData = await Promise.all(mapStoriesToFeature)
+    return featuresData
+  })
+  return featureCollection
+}
+
+// epicOrFeature = true => epic,
+// epicOrFeature = false => feature,
+const countStatuses = (arr, epicOrFeatureName, themeOrBpName, epicOrFeature) => {
+  let storyStatusesCount = {
+    toDo: 0,
+    inProgress: 0,
+    done: 0
+  }
+  arr.forEach(element => {
+    storyStatusesCount = switchCaseStatus(element.fields.status.statusCategory.name, storyStatusesCount)
+  })
+  return epicOrFeature ?
+    {
+      epicName: epicOrFeatureName,
+      toWhichTheme: themeOrBpName,
+      storyCount: arr.length,
+      storyStatusesCount,
+    } :
+    {
+      featureName: epicOrFeatureName,
+      toWhichBusinessProcess: themeOrBpName,
+      storyCount: arr.length,
+      storyStatusesCount,
+    }
+}
+
+/* 
+  Currently will ignore cases if tickets change statuses vice versa
+  Will need a complete cfd collection to work properly
+*/
+const isActive = (arr, feature) => {
+  const shallowEqual = (object1, object2) => {
+    const keys1 = Object.keys(object1)
+    const keys2 = Object.keys(object2)
+    if (keys1.length !== keys2.length) {
+      return false
+    }
+    for (let key of keys1) {
+      if (object1[key] !== object2[key]) {
+        return false
+      }
+    }
+    return true
+  }
+
+  const statuses = { toDo: 0, inProgress: 0, done: 0 }
+  arr.forEach((element) => {
+    switch (element.status) {
+      case 'To Do':
+        return statuses.toDo += 1
+      case 'In Progress':
+        return statuses.inprogress += 1
+      case 'Done':
+        return statuses.done += 1
+    }
+  })
+
+  return !shallowEqual(statuses, feature.storyStatusesCount)
+}
+
+const getStandardDeviation = (arr) => {
+  const n = arr.length
+  const mean = arr.reduce((a, b) => a + b) / n
+  if (!arr || arr.length === 0) return 0
+  return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
+}
+
+const activePromise = async (lastYear, f) => {
+  let cfdByDate = await mongooseQuery.cfdFeatureByDate(lastYear, f.feature)
+  if (cfdByDate.length === 0) {
+    return true
+  }
+  const active = isActive(cfdByDate, f)
+  return active
+}
 
 module.exports = {
   isValidCall,
@@ -364,15 +598,22 @@ module.exports = {
   jiraClientV2,
   jiraAgileClient,
   changeLogsByIdArrayV2,
-  switchCaseStatus,
   issueSearchLoopNoDB,
   issueSearchLoopJiraV2,
-  isPertientChange,
+  isPertientChangeEpic,
+  isPertientChangeFeature,
   getAllProjects,
   issuePromises,
   mapLogsWithIssueId,
   getDaysBetweenDates,
   parseDateyyyymmdd,
   createCombinationObjects,
-  cfdUpsert,
+  cfdEpicUpsert,
+  cfdFeatureUpsert,
+  getAllFeatureData,
+  countStatuses,
+  isActive,
+  getStandardDeviation,
+  activePromise,
+  switchCaseStatus
 }

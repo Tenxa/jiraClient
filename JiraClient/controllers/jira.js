@@ -1,90 +1,37 @@
 const jiraRouter = require('express').Router()
-const utils = require('../utils/utils')
-const mongooseQuery = require('../utils/mongooseQueries')
-const storiesWithThemaAndEpic = require('../utils/storiesWithThemaAndEpic')
+const utils = require('../utils')
 const Ticket = require('../models/ticket')
+const Feature = require('../models/feature')
 require('express-async-errors')
 
 
+
+// Nyt haetaan tietokannasta tickets collectionista.
+// Myöhemmin, joko tallennetaan kaikki ticketit tietokantaan ja nykyinen toteutus käy hakemassa sieltä,
+// Tai haemme jira API:lla dataInit:in alussa.
 jiraRouter.get('/dataInit', async (request, response) => {
   try {
-    // Currently we are getting all tickets that have theme and epic with a mongodb query
-    // TODO: get all issues and define themes, business processes, features and epics?
-    const themeEpic = await storiesWithThemaAndEpic.storiesWithThemaAndEpic()
-    const countCombinations = []
-    let combinationObjectList = []
-    const today = new Date()
-    for (let i = 0; i < themeEpic.length; i++) {
-      for (let j = 0; j < themeEpic[i].stories.length; j++) {
-        let basicTicket = {
-          theme: themeEpic[i].theme,
-          epic: null,
-          project: themeEpic[i].stories[j].project,
-          time: themeEpic[i].stories[j].time,
-          issuetype: themeEpic[i].stories[j].issuetype,
-          status: 'To Do', //status is to do by default?
-          //issueId: themeEpic[i].stories[j].key
-        }
+    const featuresData = await utils.helpers.getAllFeatureData()
+    const resolveData = await Promise.all(featuresData)
+    const filterUndefinedFeatures = await resolveData.flat().filter(a => a !== undefined)
+      .filter(s => s.storiesForFeatureBasic.length > 0)
+    const resultFeature = await utils.dataInitLoop.dataInitLoop(filterUndefinedFeatures, false)
 
-        const cl = await mongooseQuery.changelogByIssueId(themeEpic[i].stories[j].key)
-        // Create combination object from ticket creation day to today
-        if (cl.length === 0) {
-          basicTicket.epic = themeEpic[i].epic
-          let daysInBetween = utils.getDaysBetweenDates(utils.parseDateyyyymmdd(today), utils.parseDateyyyymmdd(basicTicket.time))
-          utils.createCombinationObjects((daysInBetween + 1), basicTicket.time, basicTicket, combinationObjectList)
-          continue
-        }
+    const themeEpic = await utils.storiesWithThemaAndEpic.storiesWithThemaAndEpic()
+    const resultEpic = await utils.dataInitLoop.dataInitLoop(themeEpic, true)
 
-        // Loop through changelog items and create combination objects.
-        let prevValueDate = null
-        for (let v = 0; v < cl[0].values.length; v++) {
-          const value = cl[0].values[v]
-
-          for (let z = 0; z < cl[0].values[v].items.length; z++) {
-            const item = cl[0].values[v].items[z]
-            if (utils.isPertientChange(item.field, basicTicket, item.toString, utils.parseDateyyyymmdd(value.created)) === false) {
-              continue
-            }
-
-            let daysInBetween = utils.getDaysBetweenDates(utils.parseDateyyyymmdd(value.created), utils.parseDateyyyymmdd(basicTicket.time))
-            const prevTime = prevValueDate ? prevValueDate : basicTicket.time
-
-            let ticketTime = new Date(prevTime)
-
-            // pushes combination objects to combinationObjectList[]
-            utils.createCombinationObjects((daysInBetween - 1), prevTime, basicTicket, combinationObjectList)
-            ticketTime.setDate(ticketTime.getDate() + daysInBetween)
-
-            prevValueDate = value.created
-            basicTicket = utils.isPertientChange(item.field, basicTicket, item.toString, ticketTime)
-
-            // Create combination objects from the last cl.value.item to today
-            if (v === cl[0].values.length - 1 && z === cl[0].values[v].items.length - 1) {
-              daysInBetween = utils.getDaysBetweenDates(utils.parseDateyyyymmdd(today), utils.parseDateyyyymmdd(prevValueDate))
-              utils.createCombinationObjects((daysInBetween + 1), prevValueDate, basicTicket, combinationObjectList)
-            }
-          }
-        }
-      }
-    }
-
-    console.log(combinationObjectList.length)
-    // Could do upsertion in the loop above also
-    // Loop through combinationObjectList and increment 1 to numberOfIssues if in db
-    await utils.cfdUpsert(combinationObjectList)
-
-    // Will response success while db operations are still processing...
-    response.json('Success')
+    const epicAndFeatureResult = resultFeature.concat(resultEpic)
+    await utils.mongooseQueries.insertCfds(epicAndFeatureResult)
+    response.json(resultFeature.length + resultEpic.length)
   } catch (error) {
     console.log(error)
-    response.status(404).end('Error')
   }
 })
 
 
 jiraRouter.get('/issueIdToChangelogs', async (request, response) => {
   try {
-    utils.mapLogsWithIssueId()
+    utils.helpers.mapLogsWithIssueId()
     //const resolved = await Promise.all(parseIssueIds)
     response.status(200).send('Success')
   } catch (error) {
@@ -93,91 +40,122 @@ jiraRouter.get('/issueIdToChangelogs', async (request, response) => {
   }
 })
 
- 
-// ToDo: Calculate Relative size with standard deviation
-// ToDo: Active (Boolean) field
-jiraRouter.get('/featureTable', async (request, response) => {
-  const businessProcesses = await mongooseQuery.byIssuetypeName('Business Process')
 
-  const featureCollection = businessProcesses.map(async (bp) => {
-    const featuresForBp = await mongooseQuery.issuesByParentOrOutwardLinkId(bp.id, 'Feature')
+// Inserts feature data based on tickets collection in db.
+// Currently we don't have a complete cfd collection, so the active field is not showing 
+//   its real value.
+jiraRouter.get('/insertFeatures', async (request, response) => {
+  try {
+    await Feature.collection.drop()
+  } catch (error) {
+    if (error.code === 26) {
+      console.log('namespace not found')
+    } else {
+      throw error;
+    }
+  }
 
-    if (featuresForBp.length === 0) return
-    const mapStoriesToFeature = await featuresForBp.map(async (feature) => {
-      const storiesForFeature = await mongooseQuery.issuesByParentOrOutwardLinkId(feature.id, 'Story')
-      let storyStatusesCount = {
-        toDo: 0,
-        inProgress: 0,
-        done: 0
-      }
-      const storiesForFeatureBasic = await storiesForFeature.map(story => {
-        storyStatusesCount = utils.switchCaseStatus(story.fields.status.statusCategory.name, storyStatusesCount)
-        return {
-          issueId: story.id,
-          key: story.key,
-          fields: {
-            parent: story.fields.parent,
-            issuetype: story.fields.issuetype,
-            status: story.fields.status,
-            fixVersions: story.fields.fixVersions
-          }
-        }
-      })
-      return {
-        featureName: feature.key,
-        toWhichBusinessProcess: bp.key,
-        storyStatusesCount,
-        storiesForFeatureBasic
-      }
-    })
+  const lastYear = new Date()
+  lastYear.setFullYear(lastYear.getFullYear() - 1)
 
-    const featuresData = await Promise.all(mapStoriesToFeature)
-    return featuresData
-  })
-
+  const featureCollection = await utils.helpers.getAllFeatureData()
   const resolveArray = await Promise.all(featureCollection)
   const filterUndefined = await resolveArray.flat().filter(a => a !== undefined)
 
-  response.json(filterUndefined)
+  const statusCounts = filterUndefined.map(f => {
+    return f.storyStatusesCount.toDo + f.storyStatusesCount.inProgress + f.storyStatusesCount.done
+  })
+  const standardDeviation = utils.helpers.getStandardDeviation(statusCounts)
+
+  const featurePromises = filterUndefined.map(async (f) => {
+    const active = await utils.helpers.activePromise(lastYear, f)
+    // Max value to 3?
+    const relativeSize = (f.storyStatusesCount.toDo + f.storyStatusesCount.inProgress + f.storyStatusesCount.done) / standardDeviation
+
+    return {
+      feature: f.featureName,
+      businessProcess: f.toWhichBusinessProcess,
+      storyStatusesCount: f.storyStatusesCount,
+      relativeSize,
+      active
+    }
+  })
+  const insertion = utils.mongooseQueries.insertFeatures(await Promise.all(featurePromises))
+
+  response.json(insertion)
+})
+
+/* 
+  Returns feature from db that simulates the fetch from jira (the most recent state)
+  And compares to the tickets state at configured date or a year ago.
+  Currently we don't have a complete cfd collection, so the active field is not showing 
+  its real value.
+*/
+jiraRouter.get('/featureTable', async (request, response) => {
+  // date can be passed in format yyyy-mm-dd
+  const configuredDate = request.body.configuredDate ? request.body.configuredDate : null
+  //Get all features from feature collection
+  const allFeatures = await utils.mongooseQueries.getFeaturesFromDB()
+
+  const mapDataToFeatures = allFeatures.map(async (f) => {
+    if (!configuredDate) {
+      return await utils.mongooseQueries.getFeatureByKeyFromDB(f.feature)
+    }
+    const cfdByDate = await utils.mongooseQueries.cfdFeatureByDate(configuredDate, f.feature)
+    const active = await utils.helpers.isActive(cfdByDate, f)
+
+    return {
+      businessProcess: f.businessProcess,
+      feature: f.feature,
+      storyStatusesCount: f.storyStatusesCount,
+      relativeSize: f.relativeSize,
+      active,
+    }
+  })
+
+  response.json(await Promise.all(mapDataToFeatures))
 })
 
 
-// 
+jiraRouter.get('/epicTableByKeyAndStatus', async (request, response) => {
+  const epic = await utils.mongooseQueries.cfdByEpic(request.body.key)
+  const epicsSortedByDate = epic.sort((a, b) => {
+    return new Date(a.time) - new Date(b.time)
+  })
+  response.json(epicsSortedByDate)
+})
+
+// We'll probably have to take Takt Times from Todo to Done as in some cases the tickets
+// go straight from todo -> done, which is not accurate
+// There are many cases where Ticket goes from In progress -> Done in the same day
+// so there's no trace of inProgress status in the cfd collection.
+
+// In some cases our test data in cfd collection have only To Do statuses because test data is missing some changelogs
+
 // To Fix: Theme -> Epic -> Story
 jiraRouter.get('/epicsTable', async (request, response) => {
-  const themes = await mongooseQuery.byIssuetypeName('Theme')
+  const themes = await utils.mongooseQueries.byIssuetypeName('Theme')
 
   const themeEpicStoryMapping = themes.map(async (theme) => {
-    const epicsForTheme = await mongooseQuery.issuesByParentOrOutwardLinkId(theme.id, 'Epic')
+    const epicsForTheme = await utils.mongooseQueries.issuesByParentOrOutwardLinkId(theme.id, 'Epic')
     if (epicsForTheme.length === 0) return
     const storiesForEpic = epicsForTheme.map(async (epic) => {
-      const stories = await mongooseQuery.storiesByParentId(epic.id, 'Story')
-      let storyStatusesCount = {
-        toDo: 0,
-        inProgress: 0,
-        done: 0
-      }
-      stories.forEach(story => storyStatusesCount = utils.switchCaseStatus(story.fields.status.statusCategory.name, storyStatusesCount))
-      return {
-        epicName: epic.key,
-        toWhichTheme: theme.key,
-        epicChildrenCount: stories.length,
-        storyStatusesCount
-      }
+      const stories = await utils.mongooseQueries.storiesByParentId(epic.id, 'Story')
+      return utils.helpers.countStatuses(stories, epic.key, theme.key, true)
     })
     return await Promise.all(storiesForEpic)
   })
 
   const resolve = await Promise.all(themeEpicStoryMapping)
   const filteredRes = resolve.flat().filter(e => e)
-  // To database filteredRes.forEach()
+  // To database => filteredRes.forEach()
   response.json(filteredRes)
 })
 
 
 jiraRouter.get('/projects', async (request, response) => {
   try {
-    const projects = await utils.getAllProjects()
+    const projects = await utils.helpers.getAllProjects()
     response.json(projects)
   } catch (error) {
     console.log(error)
@@ -195,7 +173,7 @@ jiraRouter.get('/cl', async (request, response, next) => {
 
   try {
     // true = upsert to db, empty or false = NO DB
-    const updatedResults = await utils.changeLogsByIdArrayV2(idOnly, true)
+    const updatedResults = await utils.helpers.changeLogsByIdArrayV2(idOnly, true)
     response.json({ ...updatedResults })
   } catch (error) {
     console.log(error)
@@ -216,7 +194,7 @@ jiraRouter.post('/search', async (request, response) => {
   const maxResults = 10
 
   try {
-    const resArray = await utils.issueSearchLoop(startAt, maxResults, jql)
+    const resArray = await utils.helpers.issueSearchLoop(startAt, maxResults, jql)
     response.json({ ...resArray })
   } catch (error) {
     console.log('error at api/jira/search', error)
@@ -241,13 +219,13 @@ jiraRouter.post('/', async (request, response, next) => {
   // API dokumentaation mukaan maxResult defaulttina 50.
   // Kokeiltavana vielä maxResultin nostamista. Ensin pitäisi tehdä lisää testi dataa.
   let startAt = 0
-  let maxResults = 10
+  let maxResults = 50
   let jql = 'ORDER BY Created DESC'
 
   try {
     //const resArray = await utils.issueSearchLoop(startAt, maxResults, jql)
-    const resArray = await utils.issueSearchLoopJiraV2(startAt, maxResults, jql)
-    await utils.issuePromises(resArray)
+    const resArray = await utils.helpers.issueSearchLoopJiraV2(startAt, maxResults, jql)
+    await utils.helpers.issuePromises(resArray)
     response.json({ ...resArray })
   } catch (error) {
     console.log('error at api/jira/', error)
@@ -257,7 +235,7 @@ jiraRouter.post('/', async (request, response, next) => {
 
 
 const jiraGetIssue = async (issueKey) => {
-  const jira = utils.createJiraClientWithToken()
+  const jira = utils.helpers.createJiraClientWithToken()
   const issue = await jira.issue.getIssue({
     issueKey: issueKey
   })

@@ -13,7 +13,6 @@ const devlabsRouter = require('./controllers/devLabs')
 const middleware = require('./utils/middleware')
 
 
-
 app.use(cors())
 app.use(express.static('build'))
 app.use(bodyParser.json())
@@ -26,14 +25,11 @@ app.use('/api/devlabs', devlabsRouter)
 app.use(middleware.logger)
 app.use(middleware.errorHandler)
 
-
-//const PORT = config.port
-
 morgan.token('payload', function (req, res) { return JSON.stringify(req.body) })
 app.use(morgan(':method :url :payload :status :response-time ms'))
 
-const mongoose = require('mongoose')
 
+const mongoose = require('mongoose')
 const initiateConnection = () => {
 	try {
 		let url = undefined
@@ -47,14 +43,12 @@ const initiateConnection = () => {
 		}
 		else {
 			url = config.mongoUrl
-			//mongoose.connect(url)
 			mongoose.connect(url, {
 				useNewUrlParser: true,
 				useUnifiedTopology: true,
 				useFindAndModify: false
 			})
 		}
-
 	}
 	catch (e) {
 		console.log(e)
@@ -66,7 +60,6 @@ initiateConnection()
 const server = http.createServer(app)
 
 let _port = config.port
-
 server.listen(_port, () => {
 	console.log(`Server running on port ${_port}`)
 })

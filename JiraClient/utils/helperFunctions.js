@@ -377,17 +377,17 @@ const getAllProjects = async () => {
   return projects
 }
 
-// DB upsert operation. Parses the issue id from self url
+// DB upsert operation. Parses the issue id from self.url
 const mapLogsWithIssueId = async () => {
   const changelogs = await mongooseQuery.changeLogs()
-  changelogs.map((log) => {
+  return changelogs.map( async (log) => {
     const parseId = log.self ? log.self.split('issue/')[1].split('/')[0] : ''
     const logWithIssueId = {
       ...log._doc,
       issueId: parseId
     }
-    console.log(log.self)
-    return ChangeLog.findOneAndUpdate({ '_id': log._id }, logWithIssueId, { new: true, upsert: true })
+    //console.log(log._id)
+    return await ChangeLog.findOneAndUpdate({ '_id': log._id }, logWithIssueId, { new: true, upsert: true })
   })
 }
 
@@ -428,7 +428,7 @@ const foundIndexEorF = (array, newCombObj, epicOrFeature) => {
   return found
 }
 
-const createCombinationObjects = async (daysInBetween, previousTicketDate, basicTicket, array, epicOrFeature) => {
+const createCombinationObjects = async (daysInBetween, previousTicketDate, basicTicket, map, epicOrFeature) => {
   try {
     if (basicTicket.feature === null || basicTicket === null || basicTicket.epic === null) return
     let newTicketTime = new Date(previousTicketDate)
@@ -444,18 +444,18 @@ const createCombinationObjects = async (daysInBetween, previousTicketDate, basic
         configurationDate: today
       }
       newTicketTime.setDate(newTicketTime.getDate() + 1)
-      if (array.get(key) === undefined || array.get(key) === false) {
-        array.set(key, [newCombObj])
+      if (map.get(key) === undefined || map.get(key) === false) {
+        map.set(key, [newCombObj])
       } else {
-        let foundIndex = foundIndexEorF(array.get(key), newCombObj, epicOrFeature)
+        let foundIndex = foundIndexEorF(map.get(key), newCombObj, epicOrFeature)
         if (foundIndex === -1) {
-          array.set(key, [...array.get(key), newCombObj])
+          map.set(key, [...map.get(key), newCombObj])
         } else {
-          array.get(key)[foundIndex].numberOfIssues += 1
+          map.get(key)[foundIndex].numberOfIssues += 1
         }
       }
     }
-    console.log(array.size)
+    console.log(map.size)
   } catch (error) {
     console.log(error)
   }
@@ -571,12 +571,17 @@ const isActive = (arr, feature) => {
   return !shallowEqual(statuses, feature.storyStatusesCount)
 }
 
-const getStandardDeviation = (arr) => {
+
+const getRelativeSize = (arr, issueSize) => {
+  if (!arr || arr.length === 0) return 0
   const n = arr.length
   const mean = arr.reduce((a, b) => a + b) / n
-  if (!arr || arr.length === 0) return 0
-  return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
+  const standardDeviation = Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
+  
+  return (issueSize - mean) / standardDeviation
 }
+
+
 
 const activePromise = async (lastYear, epicOrfeatureFlag, epicOrFeature) => {
   let cfdByDate = epicOrfeatureFlag
@@ -591,9 +596,9 @@ const activePromise = async (lastYear, epicOrfeatureFlag, epicOrFeature) => {
 
 // Calculates the ratio of open and closed tickets (open != done, closed = done)
 const calculateDelta = ({toDo, inProgress, done}) => {
-  const closed = (toDo + inProgress)
+  const open = (toDo + inProgress)
   if (done === 0 || closed === 0 && done === 0) return 0
-  const delta = closed / done
+  const delta = open / done
   return delta
 }
 
@@ -623,7 +628,7 @@ module.exports = {
   getAllFeatureData,
   countStatuses,
   isActive,
-  getStandardDeviation,
+  getRelativeSize,
   activePromise,
   switchCaseStatus,
   calculateDelta

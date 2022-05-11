@@ -59,11 +59,11 @@ const dataInitLoop = async (array, epicOrFeature) => {
                 for (let z = 0; z < cl[0].values[v].items.length; z++) {
                     const item = cl[0].values[v].items[z]
                     if (epicOrFeature) {
-                        if (helpers.isPertientChangeEpic(item.field, basicTicket, item.toString, helpers.parseDateyyyymmdd(value.created)) === false) {
+                        if (!helpers.isPertientChangeEpic(item.field, basicTicket, item.toString, helpers.parseDateyyyymmdd(value.created))) {
                             continue
                         }
                     } else {
-                        if (helpers.isPertientChangeFeature(item.field, basicTicket, item.toString, helpers.parseDateyyyymmdd(value.created)) === false) {
+                        if (!helpers.isPertientChangeFeature(item.field, basicTicket, item.toString, helpers.parseDateyyyymmdd(value.created))) {
                             continue
                         }
                     }

@@ -7,11 +7,9 @@ require('express-async-errors')
 
 
 
-
-
 // Nyt haetaan tietokannasta tickets collectionista.
 // Myöhemmin, joko tallennetaan kaikki ticketit tietokantaan ja nykyinen toteutus käy hakemassa sieltä,
-// Tai haemme jira API:lla dataInit:in alussa.
+// Tai haemme jira API:lla tämän funktion alussa.
 jiraRouter.get('/dataInit', async (request, response) => {
   try {
     const featuresData = await utils.helpers.getAllFeatureData()
@@ -34,8 +32,8 @@ jiraRouter.get('/dataInit', async (request, response) => {
 
 jiraRouter.get('/issueIdToChangelogs', async (request, response) => {
   try {
-    utils.helpers.mapLogsWithIssueId()
-    //const resolved = await Promise.all(parseIssueIds)
+    const parseIssueIds = await utils.helpers.mapLogsWithIssueId()
+    const resolved = await Promise.all(parseIssueIds)
     response.status(200).send('Success')
   } catch (error) {
     console.log(error)
@@ -58,22 +56,23 @@ jiraRouter.get('/insertFeatures', async (request, response) => {
     }
   }
 
-  const lastYear = new Date()
-  lastYear.setFullYear(lastYear.getFullYear() - 1)
 
   const featureCollection = await utils.helpers.getAllFeatureData()
   const resolveArray = await Promise.all(featureCollection)
   const filterUndefined = await resolveArray.flat().filter(a => a !== undefined)
 
+  // returns an array for all of the features numberOfIssues
   const statusCounts = filterUndefined.map(f => {
     return f.storyStatusesCount.toDo + f.storyStatusesCount.inProgress + f.storyStatusesCount.done
   })
-  const standardDeviation = utils.helpers.getStandardDeviation(statusCounts)
 
+  const lastYear = new Date()
+  lastYear.setFullYear(lastYear.getFullYear() - 1)
   const featurePromises = filterUndefined.map(async (f) => {
     const active = await utils.helpers.activePromise(lastYear, false, f)
     // Max value to 3?
-    const relativeSize = (f.storyStatusesCount.toDo + f.storyStatusesCount.inProgress + f.storyStatusesCount.done) / standardDeviation
+    const issueSize = f.storyStatusesCount.toDo + f.storyStatusesCount.inProgress + f.storyStatusesCount.done
+    const relativeSize = utils.helpers.getRelativeSize(statusCounts, issueSize)
 
     return {
       feature: f.featureName,
@@ -110,11 +109,11 @@ jiraRouter.get('/insertEpics', async (request, response) => {
   const statusCounts = themeEpic.map(e => {
     return e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress + e.storyStatusesCount.done
   })
-  const standardDeviation = utils.helpers.getStandardDeviation(statusCounts)
 
   const epicPromises = themeEpic.map(async (e) => {
     const active = await utils.helpers.activePromise(lastYear, true, e)
-    const relativeSize = (e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress + e.storyStatusesCount.done) / standardDeviation
+    const issueSize = e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress + e.storyStatusesCount.done
+    const relativeSize = utils.helpers.getRelativeSize(statusCounts, issueSize)
     const delta = await utils.helpers.calculateDelta(e.storyStatusesCount)
     return {
       epic: e.epic,

@@ -23,7 +23,6 @@ const storiesWithThemaAndEpic = async () => {
     
     if (epicsForTheme.length === 0) return
     const storiesForEpic = epicsForTheme.map(async (epic) => {
-      //
       const stories = await mongooseQuery.storiesByParentId(epic.id, 'Story')
       let storyStatusesCount = {
         toDo: 0,

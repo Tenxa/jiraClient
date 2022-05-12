@@ -172,13 +172,26 @@ jiraRouter.get('/epicTableByKeyAndStatus', async (request, response) => {
 
 
 
+
+// Material for Monte Carlo Simulation: 
+// https://www.slideshare.net/dimiterbak/noestimates-project-planning-using-monte-carlo-simulation
+// https://www.youtube.com/watch?v=r38a25ak4co&t=2194s
+
+// Monte Carlo Simulation notes:
 // We'll probably have to take Takt Times from Todo to Done as in some cases the tickets
 // go straight from todo -> done, which is not accurate
 // There are many cases where Ticket goes from In progress -> Done in the same day
-// so there's no trace of inProgress status in the cfd collection.
+// so there's no trace of the ticket having inProgress status in the cfd collection.
 // In some cases our test data in cfd collection have only To Do statuses because test data is missing some changelogs
 
-// To Fix: Theme -> Epic -> Story
+// Create a SIP (Stochastic Information Packet) from historical data.
+// Thoughts: 
+// - Create a SIP packet from all ticket Takt Times (Ticket Delivery time)
+//    - Could be created in the initialization phase and added to database.
+// - Or find an epic that has similair size and do the simulation to create a SIP
+//    - Would have to do 2 simulations every time, one for SIP and one for forecasting.
+//    - Has a risk of the 2 epics being similair in size but very different by content and Takt Times.
+
 jiraRouter.get('/epicsTable', async (request, response) => {
   const configuredDate = request.body.configuredDate ? request.body.configuredDate : null
 
@@ -246,14 +259,14 @@ jiraRouter.get('/cl', async (request, response, next) => {
 
 // Upserts to db.
 jiraRouter.post('/search', async (request, response) => {
-  if (!request.body.jql) {
-    return response.send({
-      error: 'You must provide a JQL query'
-    })
-  }
-  const jql = request.body.jql
+  
+  let jql = request.body.jql
   const startAt = 0
   const maxResults = 10
+
+  if (!request.body.jql) {
+    jql = 'ORDER BY Created DESC'
+  }
 
   try {
     const resArray = await utils.helpers.issueSearchLoop(startAt, maxResults, jql)
@@ -275,25 +288,25 @@ jiraRouter.get('/:id', async (request, response) => {
 })
 
 
-jiraRouter.post('/', async (request, response, next) => {
-  console.log('Getting all issues with Search');
+// jiraRouter.post('/', async (request, response, next) => {
+//   console.log('Getting all issues with Search');
 
-  // API dokumentaation mukaan maxResult defaulttina 50.
-  // Kokeiltavana vielä maxResultin nostamista. Ensin pitäisi tehdä lisää testi dataa.
-  let startAt = 0
-  let maxResults = 50
-  let jql = 'ORDER BY Created DESC'
+//   // API dokumentaation mukaan maxResult defaulttina 50.
+//   // Kokeiltavana vielä maxResultin nostamista. Ensin pitäisi tehdä lisää testi dataa.
+//   let startAt = 0
+//   let maxResults = 50
+//   let jql = 'ORDER BY Created DESC'
 
-  try {
-    //const resArray = await utils.issueSearchLoop(startAt, maxResults, jql)
-    const resArray = await utils.helpers.issueSearchLoopJiraV2(startAt, maxResults, jql)
-    await utils.helpers.issuePromises(resArray)
-    response.json({ ...resArray })
-  } catch (error) {
-    console.log('error at api/jira/', error)
-    response.status(404).end()
-  }
-})
+//   try {
+//     //const resArray = await utils.issueSearchLoop(startAt, maxResults, jql)
+//     const resArray = await utils.helpers.issueSearchLoopJiraV2(startAt, maxResults, jql)
+//     await utils.helpers.issuePromises(resArray)
+//     response.json({ ...resArray })
+//   } catch (error) {
+//     console.log('error at api/jira/', error)
+//     response.status(404).end()
+//   }
+// })
 
 
 const jiraGetIssue = async (issueKey) => {

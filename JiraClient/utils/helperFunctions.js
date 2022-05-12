@@ -597,7 +597,7 @@ const activePromise = async (lastYear, epicOrfeatureFlag, epicOrFeature) => {
 // Calculates the ratio of open and closed tickets (open != done, closed = done)
 const calculateDelta = ({toDo, inProgress, done}) => {
   const open = (toDo + inProgress)
-  if (done === 0 || closed === 0 && done === 0) return 0
+  if (done === 0 ) return 0
   const delta = open / done
   return delta
 }

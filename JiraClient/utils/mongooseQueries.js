@@ -146,6 +146,9 @@ const changelogByIssueId = async (key) => {
 const cfdByEpic = async (key) => {
   return await Cfd.find({ 'epic': key })
 }
+const cfdByFeature = async (key) => {
+  return await Cfd.find({ 'feature': key })
+}
 
 const cfdByEpicAndStatus = async (key, status) => {
   return await Cfd.find({ 'epic': key, 'status': status })
@@ -179,16 +182,33 @@ const insertCfds = async (array) => {
   return await Cfd.insertMany([...array])
 }
 
-const cfdFeatureByDate = async (date, featureName) => {
-  const startOfDay = new Date(date)
-  startOfDay.setUTCHours(0, 0, 0, 0)
+const startAndEndforDates = (date1, date2) => {
+  if (date2 === null || date2 === undefined) {
+    const startOfDay = new Date(date1)
+    startOfDay.setUTCHours(0, 0, 0, 0)
+    //startOfDay.setDate(startOfDay.getDate() +1)
 
-  const endOfDay = new Date(date)
-  endOfDay.setUTCHours(23, 59, 59, 999)
+    const endOfDay = new Date(date1)
+    endOfDay.setUTCHours(23, 59, 59, 999)
+    //endOfDay.setDate(endOfDay.getDate() +1)
+    return { startOfDay, endOfDay }
+  }
+
+  const startOfFrom = new Date(date1)
+  startOfFrom.setUTCHours(0, 0, 0, 0)
+  //startOfFrom.setDate(startOfFrom.getDate() +1)
+  const endOfTo = new Date(date2)
+  endOfTo.setUTCHours(23, 59, 59, 999)
+  //endOfTo.setDate(endOfTo.getDate() +1)
+  return { startOfFrom, endOfTo }
+}
+
+const cfdFeatureByDate = async (date, featureName) => {
+  const dates = startAndEndforDates(date)
 
   return await Cfd.find({
     $and: [
-      { 'time': { '$gte': startOfDay, '$lte': endOfDay } },
+      { 'time': { '$gte': dates.startOfDay, '$lte': dates.endOfDay } },
       { 'feature': featureName },
       {
         $or: [
@@ -202,15 +222,11 @@ const cfdFeatureByDate = async (date, featureName) => {
 }
 
 const cfdEpicByDate = async (date, epicName) => {
-  const startOfDay = new Date(date)
-  startOfDay.setUTCHours(0, 0, 0, 0)
-
-  const endOfDay = new Date(date)
-  endOfDay.setUTCHours(23, 59, 59, 999)
+  const dates = startAndEndforDates(date)
 
   return await Cfd.find({
     $and: [
-      { 'time': { '$gte': startOfDay, '$lte': endOfDay } },
+      { 'time': { '$gte': dates.startOfDay, '$lte': dates.endOfDay } },
       { 'epic': epicName },
       {
         $or: [
@@ -219,6 +235,38 @@ const cfdEpicByDate = async (date, epicName) => {
           { 'status': 'In Progress' },
         ]
       }
+    ]
+  })
+}
+
+const cfdsInRange = async (from, to) => {
+  const dates = startAndEndforDates(from, to)
+  console.log(dates.startOfFrom)
+  console.log(dates.endOfTo)
+
+  return await Cfd.find({
+    'time': { '$gte': dates.startOfFrom, '$lte': dates.endOfTo }
+  })
+}
+
+const epicCfdsInRange = async (from, to) => {
+  const dates = startAndEndforDates(from, to)
+
+  return await Cfd.find({
+    $and: [
+      { 'time': { '$gte': dates.startOfFrom, '$lte': dates.endOfTo } },
+      { 'epic': { $exists: true } }
+    ]
+  })
+}
+
+const featureCfdsInRange = async (from, to) => {
+  const dates = startAndEndforDates(from, to)
+
+  return await Cfd.find({
+    $and: [
+      { 'time': { '$gte': dates.startOfFrom, '$lte': dates.endOfTo } },
+      { 'feature': { $exists: true } }
     ]
   })
 }
@@ -245,5 +293,9 @@ module.exports = {
   getFeatureByKeyFromDB,
   getEpicByKeyFromDB,
   cfdEpicByDate,
-  insertEpics
+  insertEpics,
+  cfdsInRange,
+  epicCfdsInRange,
+  featureCfdsInRange,
+  cfdByFeature
 }

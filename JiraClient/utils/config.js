@@ -2,7 +2,7 @@ if (process.env.NODE_ENV !== 'production') {
   require('dotenv').config()
 }
 
-let port = process.env.PORT
+let port = process.env.PORT || 3003
 let mongoUrl = process.env.MONGO_DB
 let jiraUser = process.env.JIRA_NEW_USER
 let jiraPsw = process.env.JIRA_PSW

@@ -29,7 +29,68 @@ jiraRouter.get('/dataInit', async (request, response) => {
   }
 })
 
+jiraRouter.get('/cfdByDateRange', async (request, response) => {
+  try {
+    const date1 = request.query.from
+    const date2 = request.query.to
+    const cfds = await utils.mongooseQueries.cfdsInRange(date1, date2)
+    const sortByDate = cfds.sort((a, b) => {
+      return new Date(a.time) - new Date(b.time)
+    })
+    response.json(sortByDate)
+  } catch (error) {
+    console.log(error)
+  }
+})
 
+jiraRouter.get('/cfdByDateRangeEpic', async (request, response) => {
+  try {
+    const date1 = request.query.from
+    const date2 = request.query.to
+    const cfds = await utils.mongooseQueries.epicCfdsInRange(date1, date2)
+    const sortByDate = cfds.sort((a, b) => {
+      return new Date(a.time) - new Date(b.time)
+    })
+    response.json(sortByDate)
+  } catch (error) {
+    console.log(error)
+  }
+})
+
+jiraRouter.get('/cfdByDateRangeFeature', async (request, response) => {
+  try {
+    const date1 = request.query.from
+    const date2 = request.query.to
+    const cfds = await utils.mongooseQueries.featureCfdsInRange(date1, date2)
+    const sortByDate = cfds.sort((a, b) => {
+      return new Date(a.time) - new Date(b.time)
+    })
+    response.json(sortByDate)
+  } catch (error) {
+    console.log(error)
+  }
+})
+
+jiraRouter.get('/cfdEpicByKey/:key', async (request, response) => {
+  const epic = await utils.mongooseQueries.cfdByEpic(request.params.key)
+  const epicsSortedByDate = epic.sort((a, b) => {
+    return new Date(a.time) - new Date(b.time)
+  })
+  response.json(epicsSortedByDate)
+})
+
+jiraRouter.get('/cfdFeatureByKey/:key', async (request, response) => {
+  const feature = await utils.mongooseQueries.cfdByFeature(request.params.key)
+  const featuresSortedByDate = feature.sort((a, b) => {
+    return new Date(a.time) - new Date(b.time)
+  })
+  response.json(featuresSortedByDate)
+})
+
+
+
+// Used when data is imported from a file.
+// parses issue key from self field.
 jiraRouter.get('/issueIdToChangelogs', async (request, response) => {
   try {
     const parseIssueIds = await utils.helpers.mapLogsWithIssueId()
@@ -55,7 +116,6 @@ jiraRouter.get('/insertFeatures', async (request, response) => {
       throw error;
     }
   }
-
 
   const featureCollection = await utils.helpers.getAllFeatureData()
   const resolveArray = await Promise.all(featureCollection)
@@ -162,16 +222,6 @@ jiraRouter.get('/featureTable', async (request, response) => {
 })
 
 
-jiraRouter.get('/epicTableByKeyAndStatus', async (request, response) => {
-  const epic = await utils.mongooseQueries.cfdByEpic(request.body.key)
-  const epicsSortedByDate = epic.sort((a, b) => {
-    return new Date(a.time) - new Date(b.time)
-  })
-  response.json(epicsSortedByDate)
-})
-
-
-
 
 // Material for Monte Carlo Simulation: 
 // https://www.slideshare.net/dimiterbak/noestimates-project-planning-using-monte-carlo-simulation
@@ -228,6 +278,9 @@ jiraRouter.get('/test', async (request, response) => {
   response.json({ delta: utils.helpers.calculateDelta(counts) })
 })
 
+
+
+//Get from jira REST API
 jiraRouter.get('/projects', async (request, response) => {
   try {
     const projects = await utils.helpers.getAllProjects()
@@ -259,18 +312,18 @@ jiraRouter.get('/cl', async (request, response, next) => {
 
 // Upserts to db.
 jiraRouter.post('/search', async (request, response) => {
-  
   let jql = request.body.jql
   const startAt = 0
-  const maxResults = 10
+  const maxResults = 50
 
   if (!request.body.jql) {
     jql = 'ORDER BY Created DESC'
   }
 
   try {
-    const resArray = await utils.helpers.issueSearchLoop(startAt, maxResults, jql)
+    const resArray = await utils.helpers.issueSearchLoopJiraV2(startAt, maxResults, jql)
     response.json({ ...resArray })
+    await utils.helpers.issuePromises(resArray)
   } catch (error) {
     console.log('error at api/jira/search', error)
     response.status(404).end()
@@ -307,7 +360,6 @@ jiraRouter.get('/:id', async (request, response) => {
 //     response.status(404).end()
 //   }
 // })
-
 
 const jiraGetIssue = async (issueKey) => {
   const jira = utils.helpers.createJiraClientWithToken()

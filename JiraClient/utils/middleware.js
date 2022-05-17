@@ -35,7 +35,6 @@ const errorHandler = (error, request, response, next) => {
       error: 'token expired'
     })
   }
-
   next(error)
 }
 

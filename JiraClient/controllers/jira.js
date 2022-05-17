@@ -40,6 +40,7 @@ jiraRouter.get('/cfdByDateRange', async (request, response) => {
     response.json(sortByDate)
   } catch (error) {
     console.log(error)
+    response.status(404).end('Error')
   }
 })
 
@@ -54,6 +55,7 @@ jiraRouter.get('/cfdByDateRangeEpic', async (request, response) => {
     response.json(sortByDate)
   } catch (error) {
     console.log(error)
+    response.status(404).end('Error')
   }
 })
 
@@ -68,25 +70,35 @@ jiraRouter.get('/cfdByDateRangeFeature', async (request, response) => {
     response.json(sortByDate)
   } catch (error) {
     console.log(error)
+    response.status(404).end('Error')
   }
 })
 
 jiraRouter.get('/cfdEpicByKey/:key', async (request, response) => {
-  const epic = await utils.mongooseQueries.cfdByEpic(request.params.key)
-  const epicsSortedByDate = epic.sort((a, b) => {
-    return new Date(a.time) - new Date(b.time)
-  })
-  response.json(epicsSortedByDate)
+  try {
+    const epic = await utils.mongooseQueries.cfdByEpic(request.params.key)
+    const epicsSortedByDate = epic.sort((a, b) => {
+      return new Date(a.time) - new Date(b.time)
+    })
+    response.json(epicsSortedByDate)
+  } catch (error) {
+    response(404).end('Error')
+  }
+
 })
 
 jiraRouter.get('/cfdFeatureByKey/:key', async (request, response) => {
-  const feature = await utils.mongooseQueries.cfdByFeature(request.params.key)
-  const featuresSortedByDate = feature.sort((a, b) => {
-    return new Date(a.time) - new Date(b.time)
-  })
-  response.json(featuresSortedByDate)
-})
+  try {
+    const feature = await utils.mongooseQueries.cfdByFeature(request.params.key)
+    const featuresSortedByDate = feature.sort((a, b) => {
+      return new Date(a.time) - new Date(b.time)
+    })
+    response.json(featuresSortedByDate)
+  } catch (error) {
+    response(404).end('Error')
+  }
 
+})
 
 
 // Used when data is imported from a file.
@@ -293,6 +305,8 @@ jiraRouter.get('/projects', async (request, response) => {
 
 // maxResults defaults to 100
 jiraRouter.get('/cl', async (request, response, next) => {
+  // test .then .catch they do seem quite useless.
+  // Put this inside try-catch
   const idAndMongoId = await Ticket.find({}, { id: 1 })
     .then(result => result)
     .catch(error => console.log(error))
@@ -311,6 +325,7 @@ jiraRouter.get('/cl', async (request, response, next) => {
 
 
 // Upserts to db.
+// This we'll use to get all issues.
 jiraRouter.post('/search', async (request, response) => {
   let jql = request.body.jql
   const startAt = 0

@@ -11,6 +11,7 @@ const dataInitLoop = async (array, epicOrFeature) => {
     }
 
     const combinationObjectList = new Map()
+    const statusChanges = []
     const today = new Date()
 
     for (let i = 0; i < array.length; i++) {
@@ -49,6 +50,9 @@ const dataInitLoop = async (array, epicOrFeature) => {
                 }
                 let daysInBetween = helpers.getDaysBetweenDates(helpers.parseDateyyyymmdd(today), helpers.parseDateyyyymmdd(basicTicket.time))
                 helpers.createCombinationObjects((daysInBetween + 1), basicTicket.time, basicTicket, combinationObjectList, epicOrFeature)
+
+                // add initial ticket to statusChange
+                statusChanges.push({ ...basicTicket, time: today })
                 continue
             }
 
@@ -68,12 +72,17 @@ const dataInitLoop = async (array, epicOrFeature) => {
                         }
                     }
 
+                    // add to statusChanges if status changed. time = value.created
+                    if (item.field === "status") {
+                        statusChanges.push({...basicTicket, time: value.created, status: item.toString})
+                    }
+
                     let daysInBetween = helpers.getDaysBetweenDates(helpers.parseDateyyyymmdd(value.created), helpers.parseDateyyyymmdd(basicTicket.time))
                     const prevTime = prevValueDate ? prevValueDate : basicTicket.time
 
                     let ticketTime = new Date(prevTime)
 
-                    helpers.createCombinationObjects((daysInBetween - 1), prevTime, basicTicket, combinationObjectList, epicOrFeature)
+                    helpers.createCombinationObjects((daysInBetween), prevTime, basicTicket, combinationObjectList, epicOrFeature)
                     ticketTime.setDate(ticketTime.getDate() + daysInBetween)
 
                     prevValueDate = value.created
@@ -92,6 +101,7 @@ const dataInitLoop = async (array, epicOrFeature) => {
         }
     }
 
+    await mongooseQueries.insertStatusChanges(statusChanges)
     const result = Array.from(combinationObjectList.entries()).map(value => value[1]).flat()
     return result
 }

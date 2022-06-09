@@ -1,4 +1,5 @@
-// 31.07.2018
+const User = require('../models/user')
+const jwt = require('jsonwebtoken')
 
 const logger = (request, response, next) => {
   if ( process.env.NODE_ENV === 'test' ) {
@@ -16,7 +17,7 @@ const unknownEndpoint = (request, response) => {
 }
 
 const errorHandler = (error, request, response, next) => {
-  console.error(error)
+  console.error(error.message)
 
   if (error.name === 'CastError') {
     return response.status(400).send({
@@ -38,8 +39,31 @@ const errorHandler = (error, request, response, next) => {
   next(error)
 }
 
+const tokenExtractor = (request, response, next) => {
+  const authorization = request.get('authorization')
+  if (authorization && authorization.toLowerCase().startsWith('bearer')) {
+    request.token = authorization.substring(7)
+  }
+
+  next()
+}
+
+const userExtractor = async (request, response, next) => {
+  const decodedToken = jwt.verify(request.token, process.env.SECRET)
+  if (!request.token || !decodedToken.id) {
+    return response.status(401).json({ error: 'token missing or invalid' })
+  }
+
+  if(decodedToken.id) {
+    request.user = await User.findById(decodedToken.id)
+  }
+  next()
+}
+
 module.exports = {
   logger,
   unknownEndpoint,
-  errorHandler
+  errorHandler,
+  tokenExtractor,
+  userExtractor
 }

@@ -3,6 +3,7 @@ const ChangeLog = require('../models/changeLog')
 const Cfd = require('../models/cfdTable')
 const Feature = require('../models/feature')
 const Epic = require('../models/epic')
+const StatusChange = require('../models/statusChange')
 
 
 const byIssuetypeName = async (name) => {
@@ -146,6 +147,7 @@ const changelogByIssueId = async (key) => {
 const cfdByEpic = async (key) => {
   return await Cfd.find({ 'epic': key })
 }
+
 const cfdByFeature = async (key) => {
   return await Cfd.find({ 'feature': key })
 }
@@ -271,6 +273,14 @@ const featureCfdsInRange = async (from, to) => {
   })
 }
 
+const insertStatusChanges = async (statusChanges) => {
+  return await StatusChange.insertMany([...statusChanges])
+}
+
+const getStatusIssueChanges = async () => {
+  return await StatusChange.find()
+}
+
 module.exports = {
   storiesByParentId,
   byIssuetypeName,
@@ -297,5 +307,7 @@ module.exports = {
   cfdsInRange,
   epicCfdsInRange,
   featureCfdsInRange,
-  cfdByFeature
+  cfdByFeature,
+  insertStatusChanges,
+  getStatusIssueChanges
 }

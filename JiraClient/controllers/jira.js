@@ -3,6 +3,7 @@ const utils = require('../utils')
 const Ticket = require('../models/ticket')
 const Feature = require('../models/feature')
 const Epic = require('../models/epic')
+const middleware = require('../utils/middleware')
 require('express-async-errors')
 
 
@@ -16,6 +17,7 @@ jiraRouter.get('/dataInit', async (request, response) => {
     const resolveData = await Promise.all(featuresData)
     const filterUndefinedFeatures = await resolveData.flat().filter(a => a !== undefined)
       .filter(s => s.storiesForFeatureBasic.length > 0)
+
     const resultFeature = await utils.dataInitLoop.dataInitLoop(filterUndefinedFeatures, false)
 
     const themeEpic = await utils.storiesWithThemaAndEpic.storiesWithThemaAndEpic()
@@ -84,7 +86,6 @@ jiraRouter.get('/cfdEpicByKey/:key', async (request, response) => {
   } catch (error) {
     response(404).end('Error')
   }
-
 })
 
 jiraRouter.get('/cfdFeatureByKey/:key', async (request, response) => {
@@ -97,7 +98,6 @@ jiraRouter.get('/cfdFeatureByKey/:key', async (request, response) => {
   } catch (error) {
     response(404).end('Error')
   }
-
 })
 
 
@@ -240,7 +240,7 @@ jiraRouter.get('/featureTable', async (request, response) => {
 // https://www.youtube.com/watch?v=r38a25ak4co&t=2194s
 
 // Monte Carlo Simulation notes:
-// We'll probably have to take Takt Times from Todo to Done as in some cases the tickets
+// We'll probably have to take Takt Times from Todo to Done as in some cases the tickets ---- IN progress -> done
 // go straight from todo -> done, which is not accurate
 // There are many cases where Ticket goes from In progress -> Done in the same day
 // so there's no trace of the ticket having inProgress status in the cfd collection.
@@ -250,13 +250,129 @@ jiraRouter.get('/featureTable', async (request, response) => {
 // Thoughts: 
 // - Create a SIP packet from all ticket Takt Times (Ticket Delivery time)
 //    - Could be created in the initialization phase and added to database.
-// - Or find an epic that has similair size and do the simulation to create a SIP
-//    - Would have to do 2 simulations every time, one for SIP and one for forecasting.
-//    - Has a risk of the 2 epics being similair in size but very different by content and Takt Times.
+
+
+// NOTES 30.5
+// - Get all tickets that are done regardless if the epic is still active.
+
+jiraRouter.get('/createSip', async (request, response) => {
+  const sip = []
+  // Check Time between in progress -> done OR To Do -> Done but time = 0 in the latter case.
+  const epics = await utils.storiesWithThemaAndEpic.storiesWithThemaAndEpic()
+  // REMOVE LATER: Slice for testing .slice(0, 20) 
+  const epicsWithIssues = epics.filter(epic => epic.stories.length > 0)
+
+  const mapStories = epicsWithIssues.map(async (epic) => {
+    const cfdsForEpic = await utils.mongooseQueries.cfdByEpic(epic.epic)
+    const inProgressAndDones = cfdsForEpic.filter(cfd => cfd.status === 'In Progress' || cfd.status === 'Done')
+    return [...inProgressAndDones]
+  })
+
+  const resolveCfds = await Promise.all(mapStories)
+  const filterEmpties = resolveCfds.filter(cfds => cfds.length > 0)
+  const sortByDate = filterEmpties.map(epic => epic.sort((a, b) => a.time - b.time))
+
+
+  // inProgchanges is a Map with epic as key and array of changes in numberOfIssues as value. 
+  const inProgress = sortByDate.map(epic => epic.filter(cfd => cfd.status === 'In Progress'))
+  const inProgChanges = utils.helpers.getStatusIssueChanges(inProgress)
+
+  // Same as above for Dones
+  const dones = sortByDate.map(epic => epic.filter(cfd => cfd.status === 'Done'))
+  const doneChanges = utils.helpers.getStatusIssueChanges(dones)
+
+  // Loop through in progs and get the next done count. Keep the previous done count in memory to see how many new ones has been done.
+  const testInprog = inProgChanges.get('CPS-5248')
+  const testDones = doneChanges.get('CPS-5248')
+
+  const doneTickets = []
+  //const inProgUniq = []
+  const taktTimes = []
+
+
+  // map all dones. Example result for doneTickets array = [
+  //   { numberOfIssues: 2, time: 2022-05-11T21:00:00.000Z },
+  //   { numberOfIssues: 2, time: 2022-05-12T21:00:00.000Z },
+  //   { numberOfIssues: 1, time: 2022-05-18T21:00:00.000Z }
+  // ]
+  for (let i = 0; i < testDones.length; i++) {
+    if (i === 0) {
+      doneTickets.push({ numberOfIssues: testDones[i].numberOfIssues, time: testDones[i].time })
+    } else {
+      if (testDones[i].numberOfIssues > testDones[i - 1].numberOfIssues) {
+        const newDones = testDones[i].numberOfIssues - testDones[i - 1].numberOfIssues
+        doneTickets.push({ numberOfIssues: newDones, time: testDones[i].time })
+      }
+    }
+  }
+
+  
+
+  // map doneTickets to same format as inProgUniq for ease of use
+  const doneDatesOnly = []
+  doneTickets.forEach(d => {
+    for (let i = 0; i < d.numberOfIssues; i++) {
+      doneDatesOnly.push(d.time)
+    }
+  })
+  console.log(doneDatesOnly)
+
+  // map all new in progress ticket times.
+  // Jos done pvm sama kuin in prog.
+  // Tehdään vähennyslasku ja katsotaanko onko in prog numberOfIssues sama, jos ei niin lisätään uusi listaan
+  const inProgDates = []
+  let counter = 0
+  for (let i = 0; i < testInprog.length; i++) {
+    if (i === 0) {
+      for (let j = 0; j < testInprog[0].numberOfIssues; j++) {
+        inProgDates.push(testInprog[0].time)
+        counter += 1
+      }
+    } else {
+      // jos on tullut lisää in prog tilaan lisätään päivämäärät listaan.
+      if (counter < testInprog[i].numberOfIssues) {
+        for (let j = 0; j < testInprog[i].numberOfIssues - counter; j++) {
+          inProgDates.push(testInprog[i].time)
+        }
+      }
+    }
+  }
+
+
+  // Calculate takt times. first takt times inProg -> dones. Then we will consider that the leftover dones are done on the same day
+  // so takt time = 0 for those.
+  // for(let i = 0; i < doneDatesOnly.length; i++) {
+  //   if (inProgUniq.length > 0) {
+  //     const taktTime = utils.helpers.getDaysBetweenDates(doneDatesOnly[i], inProgUniq[0])
+  //     taktTimes.push(taktTime)
+  //     inProgUniq.shift()
+  //   } else {
+  //     taktTimes.push(0)
+  //   }
+  // }
+  // console.log(taktTimes)
+
+  //response.json({taktTimes})
+  response.json({ testInprog, testDones })
+  //response.json({inProgress: Array.from(inProgChanges.entries()), dones: Array.from(doneChanges.entries())})
+})
+
+
+
+jiraRouter.get('/test', async (request, response) => {
+  const statusIssueChanges = await utils.mongooseQueries.getStatusIssueChanges()
+  const byEpic = statusIssueChanges.filter(s => s.epic === "CPS-5248" && (s.status === "In Progress" || s.status === "Done"))
+  const dones = byEpic.filter(a => a.status === "Done").sort((a, b) => a.time - b.time)
+  const inProg = byEpic.filter(a => a.status === "In Progress").sort((a, b) => a.time - b.time)
+  response.json({inProg, dones})
+})
+
+
 
 jiraRouter.get('/epicsTable', async (request, response) => {
   const configuredDate = request.body.configuredDate ? request.body.configuredDate : null
 
+  // From Epic-collection
   const allEpics = await utils.mongooseQueries.getEpicsFromDB()
 
   const mapDataToEpics = allEpics.map(async (e) => {
@@ -280,16 +396,6 @@ jiraRouter.get('/epicsTable', async (request, response) => {
   response.json(resolvedPromises.flat())
 })
 
-jiraRouter.get('/test', async (request, response) => {
-  const counts = {
-    toDo: 5,
-    inProgress: 5,
-    done: 15
-  }
-  console.log(typeof utils.helpers.calculateDelta(counts))
-  response.json({ delta: utils.helpers.calculateDelta(counts) })
-})
-
 
 
 //Get from jira REST API
@@ -304,18 +410,14 @@ jiraRouter.get('/projects', async (request, response) => {
 })
 
 // maxResults defaults to 100
-jiraRouter.get('/cl', async (request, response, next) => {
-  // test .then .catch they do seem quite useless.
-  // Put this inside try-catch
-  const idAndMongoId = await Ticket.find({}, { id: 1 })
-    .then(result => result)
-    .catch(error => console.log(error))
+jiraRouter.get('/cl', async (request, response) => {
+  const issuesWithIdAndMongoId = await Ticket.find({}, { key: 1 })
 
-  const idOnly = idAndMongoId.map(is => parseInt(is.id))
-
+  const keysOnly = issuesWithIdAndMongoId.map(is => is.key)
+  console.log('issues:', keysOnly.length)
   try {
-    // true = upsert to db, empty or false = NO DB
-    const updatedResults = await utils.helpers.changeLogsByIdArrayV2(idOnly, true)
+    const updatedResults = await utils.helpers.changeLogsByIdArrayV2(keysOnly)
+
     response.json({ ...updatedResults })
   } catch (error) {
     console.log(error)
@@ -324,24 +426,26 @@ jiraRouter.get('/cl', async (request, response, next) => {
 })
 
 
-// Upserts to db.
-// This we'll use to get all issues.
-jiraRouter.post('/search', async (request, response) => {
-  let jql = request.body.jql
-  const startAt = 0
-  const maxResults = 50
 
-  if (!request.body.jql) {
-    jql = 'ORDER BY Created DESC'
-  }
+// This we'll use to get all issues.
+jiraRouter.get('/search', async (request, response) => {
+  // jql-query for testing
+  let jql = 'FILTER=DashBoardTestFilter'
+  //let jql = 'ORDER BY Created DESC'
+  const startAt = 0
+  const maxResults = 100
+
 
   try {
     const resArray = await utils.helpers.issueSearchLoopJiraV2(startAt, maxResults, jql)
-    response.json({ ...resArray })
+
+    // Upsertion
+    // Drop collection and insert all?
     await utils.helpers.issuePromises(resArray)
+    response.json({ count: resArray.length })
+
   } catch (error) {
-    console.log('error at api/jira/search', error)
-    response.status(404).end()
+    console.log(error)
   }
 })
 
@@ -356,30 +460,11 @@ jiraRouter.get('/:id', async (request, response) => {
 })
 
 
-// jiraRouter.post('/', async (request, response, next) => {
-//   console.log('Getting all issues with Search');
-
-//   // API dokumentaation mukaan maxResult defaulttina 50.
-//   // Kokeiltavana vielä maxResultin nostamista. Ensin pitäisi tehdä lisää testi dataa.
-//   let startAt = 0
-//   let maxResults = 50
-//   let jql = 'ORDER BY Created DESC'
-
-//   try {
-//     //const resArray = await utils.issueSearchLoop(startAt, maxResults, jql)
-//     const resArray = await utils.helpers.issueSearchLoopJiraV2(startAt, maxResults, jql)
-//     await utils.helpers.issuePromises(resArray)
-//     response.json({ ...resArray })
-//   } catch (error) {
-//     console.log('error at api/jira/', error)
-//     response.status(404).end()
-//   }
-// })
 
 const jiraGetIssue = async (issueKey) => {
-  const jira = utils.helpers.createJiraClientWithToken()
-  const issue = await jira.issue.getIssue({
-    issueKey: issueKey
+  const jira = utils.helpers.jiraClientV2()
+  const issue = await jira.issues.getChangeLogs({
+    issueIdOrKey: issueKey
   })
   return issue
 }

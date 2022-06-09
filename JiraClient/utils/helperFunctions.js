@@ -60,6 +60,31 @@ const jiraClientV2 = () => {
   return jira
 }
 
+// Later replace Jira REST API version2 calls with this. Haven't yet tested differences so let's implement later.
+// const jiraClientV3 = () => {
+//   const jira = new Jirajs.Version3Client({
+//     host: config.jiraURL,
+//     authentication: {
+//       basic: {
+//         email: config.jiraDevLabsUser.trim(),
+//         apiToken: config.jiraToken.trim()
+//       },
+//     },
+//   });
+//   return jira
+// }
+
+const jiraTest = async () => {
+  const jira = jiraClientV2()
+  const jql = 'ORDER BY Created DESC'
+  try {
+    const issueSearch = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(0, 2, jql))
+    return issueSearch
+  } catch (error) {
+    console.log('JiraTEst', error)
+  }
+}
+
 const jiraAgileClient = () => {
   const agile = new Jirajs.AgileClient({
     host: config.jiraURL,
@@ -106,6 +131,7 @@ const isValidCall = (request) => {
 
 // Kahdesta alla olevista funktioista voisi tehdä geneerisempi toteutus...
 const issuePromises = (issues) => {
+  console.log('STARTED DB OPERATIONS')
   return issues.map((async i => {
     return Ticket.findOneAndUpdate({ 'id': i.id }, i, { new: true, upsert: true })
       .then(updatedIssue => updatedIssue)
@@ -180,26 +206,36 @@ const jqlSearch = (start, max, jql) => {
   }
 }
 
-const changeLogsByIdArrayV2 = async (ids, db) => {
+
+const changeLogsByIdArrayV2 = async (keys) => {
   const jira = jiraClientV2()
 
-  const logsById = ids.map(async (id) => {
-    const cl = await jira.issues.getChangeLogs({
-      issueIdOrKey: id
-    })
-    return {
-      ...cl,
-      issueId: id
-    }
-  })
+  const results = []
+  const rounds = Math.ceil(keys.length / 100)
+  let index = 0
+  for (let i = 0; i < rounds; i++) {
+    const logsByKey = await keys.slice(index, index + 100).map(async (key) => {
+      let cl = await jira.issues.getChangeLogs({ issueIdOrKey: key })
 
-  const results = await Promise.all(logsById)
-  if (!db) {
-    console.log('NO DB')
-    return results
+      // if logs don't fit one request. Add new values to obj keeping the first requests metadata.
+      if (cl.total > 100) {
+        const reqCount = Math.ceil(cl.total / 100)
+        for (let j = 0; j < reqCount; j++) {
+          const moreLogs = await jira.issues.getChangeLogs({ issueIdOrKey: key })
+          cl.values.push(moreLogs.values)
+        }
+      }
+
+      return {
+        ...cl,
+        issueId: key
+      }
+    })
+    index = index + 100
+    results.push(await Promise.all(logsByKey))
   }
 
-  const updateOrInsertCLToDb = await changelogUpsert(results)
+  const updateOrInsertCLToDb = await changelogUpsert(results.flat())
   return await Promise.all(updateOrInsertCLToDb)
 }
 
@@ -268,20 +304,20 @@ const issueSearchLoopNoDB = async (startAt, maxResults, jql) => {
 
 
 const issueSearchLoopJiraV2 = async (startAt, maxResults, jql) => {
+  console.log('IN S-LOOP')
   const jira = jiraClientV2()
   let issueArray = []
   const issueSearch = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(startAt, maxResults, jql))
-  issueSearch.issues.map(i => {
-    issueArray.push(i)
-  })
+  issueArray.push(...issueSearch.issues)
+
   if (issueSearch.total > maxResults) {
     const rounds = Math.ceil(issueSearch.total / maxResults)
+    //const rounds = 5
     for (i = 0; i < rounds - 1; i++) {
       startAt += maxResults
       const search = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(startAt, maxResults, jql))
-      search.issues.map(i => {
-        issueArray.push(i)
-      })
+      console.log(`ROUND ${i}`)
+      issueArray.push(...search.issues)
     }
   }
   return issueArray
@@ -344,12 +380,27 @@ const isPertientChangeEpic = (key, obj, changeTo, time) => {
         epic: changeTo,
         time
       }
+    // Looking changes for only 3 statuses: To Do -> In Progress -> Done
+    // How will we take in account the closed tickets: 'Won't do / Closed'. Keep it for Delta calculation?
     case 'status':
-      return {
-        ...obj,
-        status: changeTo,
-        time
+      const isClosed = (status) => status.split(' / ')[1] === 'Closed'
+
+      if (changeTo === 'In Progress' || changeTo === 'In review' || changeTo === 'In testing' || changeTo === 'Live') {
+        return {
+          ...obj,
+          status: 'In Progress',
+          time
+        }
       }
+      if (changeTo === 'To Do' || changeTo === 'Done' || isClosed(changeTo)) {
+        return {
+          ...obj,
+          status: changeTo,
+          time
+        }
+      }
+      return false
+
     case 'project':
       return {
         ...obj,
@@ -380,7 +431,7 @@ const getAllProjects = async () => {
 // DB upsert operation. Parses the issue id from self.url
 const mapLogsWithIssueId = async () => {
   const changelogs = await mongooseQuery.changeLogs()
-  return changelogs.map( async (log) => {
+  return changelogs.map(async (log) => {
     const parseId = log.self ? log.self.split('issue/')[1].split('/')[0] : ''
     const logWithIssueId = {
       ...log._doc,
@@ -401,7 +452,9 @@ const getDaysBetweenDates = (date1, date2) => {
 
 const parseDateyyyymmdd = (date) => {
   const toDate = new Date(date)
-  return (toDate.getFullYear() + '-' + (toDate.getMonth() + 1) + '-' + toDate.getDate())
+  toDate.setUTCHours(0,0,0,0)
+  return toDate.toISOString()
+  //return (toDate.getFullYear() + '-' + (toDate.getMonth() + 1) + '-' + toDate.getDate())
 }
 
 // true => epic, false => feature
@@ -443,6 +496,7 @@ const createCombinationObjects = async (daysInBetween, previousTicketDate, basic
         time: parseDateyyyymmdd(newTicketTime),
         configurationDate: today
       }
+      // add day +1 for every new round
       newTicketTime.setDate(newTicketTime.getDate() + 1)
       if (map.get(key) === undefined || map.get(key) === false) {
         map.set(key, [newCombObj])
@@ -465,12 +519,12 @@ const createCombinationObjects = async (daysInBetween, previousTicketDate, basic
 const getAllFeatureData = async () => {
   const businessProcesses = await mongooseQuery.byIssuetypeName('Business Process')
 
-  const featureCollection = businessProcesses.map(async (bp) => {
+  const featureCollection = await businessProcesses.map(async (bp) => {
     const featuresForBp = await mongooseQuery.issuesByParentOrOutwardLinkId(bp.id, 'Feature')
 
     if (featuresForBp.length === 0) return
     const mapStoriesToFeature = await featuresForBp.map(async (feature) => {
-      // could also just check stories from features inwardlinks with type.name === "Feature link" check 
+      // could also just check stories from features inwardlinks with type.name === 'Feature link' check 
       const storiesForFeature = await mongooseQuery.issuesByParentOrOutwardLinkId(feature.id, 'Story')
       let storyStatusesCount = {
         toDo: 0,
@@ -577,7 +631,7 @@ const getRelativeSize = (arr, issueSize) => {
   const n = arr.length
   const mean = arr.reduce((a, b) => a + b) / n
   const standardDeviation = Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
-  
+
   return (issueSize - mean) / standardDeviation
 }
 
@@ -595,11 +649,28 @@ const activePromise = async (lastYear, epicOrfeatureFlag, epicOrFeature) => {
 }
 
 // Calculates the ratio of open and closed tickets (open != done, closed = done)
-const calculateDelta = ({toDo, inProgress, done}) => {
+const calculateDelta = ({ toDo, inProgress, done }) => {
   const open = (toDo + inProgress)
-  if (done === 0 ) return 0
+  if (done === 0) return 0
   const delta = open / done
   return delta
+}
+
+// returns an array that has all the elements when numberOfIssues changes.
+const getStatusIssueChanges = (statusArray) => {
+  const result = new Map()
+  for (let i = 0; i < statusArray.length; i++) {
+    for (let j = 0; j < statusArray[i].length; j++) {
+      if (j === 0) {
+        result.set(statusArray[i][j].epic, [statusArray[i][j]])
+      }
+      const epicArray = result.get(statusArray[i][j].epic)
+      if (epicArray[epicArray.length - 1].numberOfIssues !== statusArray[i][j].numberOfIssues) {
+        result.get(statusArray[i][j].epic).push(statusArray[i][j])
+      }
+    }
+  }
+  return result
 }
 
 module.exports = {
@@ -631,5 +702,7 @@ module.exports = {
   getRelativeSize,
   activePromise,
   switchCaseStatus,
-  calculateDelta
+  calculateDelta,
+  jiraTest,
+  getStatusIssueChanges
 }

@@ -452,7 +452,7 @@ const getDaysBetweenDates = (date1, date2) => {
 
 const parseDateyyyymmdd = (date) => {
   const toDate = new Date(date)
-  toDate.setUTCHours(0,0,0,0)
+  toDate.setUTCHours(0, 0, 0, 0)
   return toDate.toISOString()
   //return (toDate.getFullYear() + '-' + (toDate.getMonth() + 1) + '-' + toDate.getDate())
 }
@@ -625,7 +625,6 @@ const isActive = (arr, feature) => {
   return !shallowEqual(statuses, feature.storyStatusesCount)
 }
 
-
 const getRelativeSize = (arr, issueSize) => {
   if (!arr || arr.length === 0) return 0
   const n = arr.length
@@ -673,7 +672,93 @@ const getStatusIssueChanges = (statusArray) => {
   return result
 }
 
+// Gets time and number of issues by looking at if next array element has increased to previous.
+// Example result = [
+//   { numberOfIssues: 2, time: 2022-05-11T21:00:00.000Z },
+//   { numberOfIssues: 2, time: 2022-05-12T21:00:00.000Z },
+//   { numberOfIssues: 1, time: 2022-05-18T21:00:00.000Z }
+// ]
+const getIssueStatusTimes = (arr) => {
+  const res = []
+  for (let i = 0; i < arr.length; i++) {
+    if (i === 0) {
+      res.push({ numberOfIssues: arr[i].numberOfIssues, time: arr[i].time })
+    } else {
+      // Will have a problem for example if we inspect from todo perspective:
+      // Todo -> other (so numberOfIssues -1 in next element) and at the same time a new Todo emerges -> will not detect the new issue.
+      // The problem lies in dataInit algo
+      if (arr[i].numberOfIssues > arr[i - 1].numberOfIssues) {
+        const resNum = arr[i].numberOfIssues - arr[i - 1].numberOfIssues
+        res.push({ numberOfIssues: resNum, time: arr[i].time })
+      }
+    }
+  }
+  return res
+}
+
+const calculateMedian = (values) => {
+  const sortedValues = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sortedValues.length / 2)
+  return sortedValues % 2 === 0 ? (sortedValues[middle - 1] + sortedValues[middle]) / 2 : sortedValues[middle]
+}
+
+const calculateMean = (arr, simulationRounds) => {
+  return arr.reduce((a, b) => a + b, 0) / simulationRounds
+}
+
+// data: Array, q: percentile of value (0.85, 0.95)
+const calculatePercentile = (data, q) => {
+  data = data.sort((a, b) => a - b);
+  var pos = ((data.length) - 1) * q;
+  var base = Math.floor(pos);
+  var rest = pos - base;
+  if ((data[base + 1] !== undefined)) {
+    return data[base] + rest * (data[base + 1] - data[base]);
+  } else {
+    return data[base];
+  }
+}
+
+const factTableDeviation = (arr, simulationRounds) => {
+  const min = Math.min(...arr)
+  const max = Math.max(...arr)
+  const freqForMin = arr.filter(value => value <= min).length
+  const freqForMax = arr.filter(value => value >= max).length
+  const pdfForFirstRow = freqForMin / simulationRounds
+  const pdfForLastRow = freqForMax / simulationRounds
+  const cdfForFirstRow = pdfForFirstRow
+  const cdfForLastRow = 1
+  const tableArray = [{ value: min, freq: freqForMin, pdf: pdfForFirstRow, cdf: cdfForFirstRow }, { value: max, freq: freqForMax, pdf: pdfForLastRow, cdf: cdfForLastRow }]
+  const copyTableArray = [...tableArray]
+  copyTableArray.pop()
+  let previousValue = min
+  for (let i = 0; i < 9; i++) {
+    const ttOrDt = previousValue + (max - min) / 10
+    const frequency = arr.filter(value => value <= ttOrDt && value > previousValue).length
+    // PDF -> Probability Density Function
+    const pdf = frequency / simulationRounds
+    // CDF -> Cumulative Distribution Function
+    const cdf = copyTableArray.reduce((a, b) => a + b.freq, frequency) / simulationRounds
+    tableArray.push({ value: ttOrDt, freq: frequency, pdf, cdf })
+    copyTableArray.push({ value: ttOrDt, freq: frequency, pdf, cdf })
+    previousValue = ttOrDt
+  }
+  return tableArray.sort((a, b) => a.value - b.value)
+}
+
+const factTable = (arr, propertyKey, simulationRounds) => {
+  const newArr = [...arr.values()].map(element => element[propertyKey])
+  const median = calculateMedian(newArr)
+  const mean = calculateMean(newArr, simulationRounds)
+  const standardDeviation = Math.sqrt(newArr.map((v) => Math.pow(v - mean, 2)).reduce((a, b) => a + b) / simulationRounds)
+  const firstPercentile = calculatePercentile(newArr, 0.85)
+  const secondPercentile = calculatePercentile(newArr, 0.95)
+
+  return ({ median, mean, standardDeviation, "85 percentile": firstPercentile, "95 percentile": secondPercentile })
+}
+
 module.exports = {
+  getIssueStatusTimes,
   isValidCall,
   createJiraToken,
   createJiraTokenFromPsw,
@@ -704,5 +789,7 @@ module.exports = {
   switchCaseStatus,
   calculateDelta,
   jiraTest,
-  getStatusIssueChanges
+  getStatusIssueChanges,
+  factTable,
+  factTableDeviation
 }

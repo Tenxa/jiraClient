@@ -239,33 +239,67 @@ jiraRouter.get('/featureTable', async (request, response) => {
 // https://www.slideshare.net/dimiterbak/noestimates-project-planning-using-monte-carlo-simulation
 // https://www.youtube.com/watch?v=r38a25ak4co&t=2194s
 
-// Monte Carlo Simulation notes:
-// We'll probably have to take Takt Times from Todo to Done as in some cases the tickets ---- IN progress -> done
-// go straight from todo -> done, which is not accurate
-// There are many cases where Ticket goes from In progress -> Done in the same day
-// so there's no trace of the ticket having inProgress status in the cfd collection.
-// In some cases our test data in cfd collection have only To Do statuses because test data is missing some changelogs
+// Monte Carlo Simulation:
+// This will now do a monte carlo for N work items.
+// For us to make a forecast on a started Epic we would have to create SIP files for the 3 different phases of Z-Curve
+// and do a Monte Carlo simulation for the wanted Z-curve phases.
+jiraRouter.get('/monteCarlo', async (request, response) => {
+  const sip = await utils.createSip.createSip()
+  const epicSize = 20
+  const simulationRounds = 1000
+  const randomElement = () => {
+    return sip[Math.floor(Math.random() * sip.length)]
+  }
+  const results = new Map()
+
+  // results: 
+  // 1 => { deliveryTime: 572, averageTaktTime: 28.6 },
+  // 2 => { deliveryTime: 776, averageTaktTime: 38.8 },
+  // 3 => { deliveryTime: 1119, averageTaktTime: 55.95 },
+  // 4 => { deliveryTime: 731, averageTaktTime: 36.55 }, ....
+  for (let i = 0; i < simulationRounds; i++) {
+    const resampledArray = []
+    for (let j = 0; j < epicSize; j++) {
+      resampledArray.push(randomElement())
+    }
+
+    const deliveryTime = resampledArray.reduce((previous, current) => previous + current, 0)
+    const averageTaktTime = deliveryTime / resampledArray.length
+    results.set(i + 1, { deliveryTime, averageTaktTime })
+  }
+
+  const ttArray = [...results.values()].map(v => v.averageTaktTime)
+  const dtArray = [...results.values()].map(v => v.deliveryTime)
+
+
+  //console.log(simulationRounds)
+  // Function can be used in response etc to round values.
+  // const round2Decimals = Math.round((ttOrDt + Number.EPSILON) * 100) / 100 factTable([...results.values()], "averageTaktTime"),
+
+  response.json({
+    DeviationTableTT: utils.helpers.factTableDeviation(ttArray, simulationRounds), FactTableTT: utils.helpers.factTable([...results.values()], "averageTaktTime", simulationRounds),
+    DeviationTableT: utils.helpers.factTableDeviation(dtArray, simulationRounds), FactTableT: utils.helpers.factTable([...results.values()], "deliveryTime", simulationRounds)
+  })
+  //response.json(factTableDeviation(ttArray))
+  //response.json([...results.entries()])
+})
+
 
 // Create a SIP (Stochastic Information Packet) from historical data.
 // Thoughts: 
 // - Create a SIP packet from all ticket Takt Times (Ticket Delivery time)
 //    - Could be created in the initialization phase and added to database.
+// - 
 
-
-// NOTES 30.5
-// - Get all tickets that are done regardless if the epic is still active.
-
+// TODO: Parallelly done tickets
 jiraRouter.get('/createSip', async (request, response) => {
-  const sip = []
   // Check Time between in progress -> done OR To Do -> Done but time = 0 in the latter case.
   const epics = await utils.storiesWithThemaAndEpic.storiesWithThemaAndEpic()
-  // REMOVE LATER: Slice for testing .slice(0, 20) 
   const epicsWithIssues = epics.filter(epic => epic.stories.length > 0)
 
   const mapStories = epicsWithIssues.map(async (epic) => {
     const cfdsForEpic = await utils.mongooseQueries.cfdByEpic(epic.epic)
-    const inProgressAndDones = cfdsForEpic.filter(cfd => cfd.status === 'In Progress' || cfd.status === 'Done')
-    return [...inProgressAndDones]
+    return [...cfdsForEpic]
   })
 
   const resolveCfds = await Promise.all(mapStories)
@@ -274,97 +308,67 @@ jiraRouter.get('/createSip', async (request, response) => {
 
 
   // inProgchanges is a Map with epic as key and array of changes in numberOfIssues as value. 
-  const inProgress = sortByDate.map(epic => epic.filter(cfd => cfd.status === 'In Progress'))
-  const inProgChanges = utils.helpers.getStatusIssueChanges(inProgress)
+  const inProgChanges = utils.helpers.getStatusIssueChanges(sortByDate.map(epic => epic.filter(cfd => cfd.status === 'In Progress')))
+  const doneChanges = utils.helpers.getStatusIssueChanges(sortByDate.map(epic => epic.filter(cfd => cfd.status === 'Done')))
+  const todoChanges = utils.helpers.getStatusIssueChanges(sortByDate.map(epic => epic.filter(cfd => cfd.status === 'To Do')))
 
-  // Same as above for Dones
-  const dones = sortByDate.map(epic => epic.filter(cfd => cfd.status === 'Done'))
-  const doneChanges = utils.helpers.getStatusIssueChanges(dones)
 
-  // Loop through in progs and get the next done count. Keep the previous done count in memory to see how many new ones has been done.
-  const testInprog = inProgChanges.get('CPS-5248')
-  const testDones = doneChanges.get('CPS-5248')
-
-  const doneTickets = []
-  //const inProgUniq = []
   const taktTimes = []
+  for (const key of doneChanges.keys()) {
+    let dones = utils.helpers.getIssueStatusTimes(doneChanges.get(key))
+    let inProgs = utils.helpers.getIssueStatusTimes(inProgChanges.get(key))
+    let todos = utils.helpers.getIssueStatusTimes(todoChanges.get(key))
 
+    if (dones === undefined || inProgs === undefined || todos === undefined) continue
 
-  // map all dones. Example result for doneTickets array = [
-  //   { numberOfIssues: 2, time: 2022-05-11T21:00:00.000Z },
-  //   { numberOfIssues: 2, time: 2022-05-12T21:00:00.000Z },
-  //   { numberOfIssues: 1, time: 2022-05-18T21:00:00.000Z }
-  // ]
-  for (let i = 0; i < testDones.length; i++) {
-    if (i === 0) {
-      doneTickets.push({ numberOfIssues: testDones[i].numberOfIssues, time: testDones[i].time })
-    } else {
-      if (testDones[i].numberOfIssues > testDones[i - 1].numberOfIssues) {
-        const newDones = testDones[i].numberOfIssues - testDones[i - 1].numberOfIssues
-        doneTickets.push({ numberOfIssues: newDones, time: testDones[i].time })
-      }
-    }
-  }
+    // TODO: How to take in consideration tickets that are made in parallel.
+    // Notes: tickets are sorted by date (start) at this point, so we'll inspect the previous ticket and see if the current ticket is done on the same day as the previous.
+    //        There is uncertainty in our approach as we dont track an individual tickets status process. Just looking kind of randomly at status changes and their dates.
+    //        The most simple situation is when ticket has same "start" and Done date.
+    for (let i = 0; i < dones.length; i++) {
+      for (let j = 0; j < dones[i].numberOfIssues; j++) {
+        // if done.time is earlier than the next inProg then it has to be taken from done -> todo. Same if inProgs are empty.
+        // if both todo and inProgress are in the future then taktTime for the ticket = 0
+        if (todos.length > 0 && (inProgs.length == 0 || inProgs[0].time > dones[i].time)) {
+          console.log(todos[0].time > dones[i].time)
+          if (todos[0].time > dones[i].time) {
+            taktTimes.push(0)
+          } else {
+            taktTimes.push(utils.helpers.getDaysBetweenDates(dones[i].time, todos[0].time))
+          }
+        } else {
+          taktTimes.push(utils.helpers.getDaysBetweenDates(dones[i].time, inProgs[0].time))
+          inProgs[0].numberOfIssues--
+        }
 
-  
-
-  // map doneTickets to same format as inProgUniq for ease of use
-  const doneDatesOnly = []
-  doneTickets.forEach(d => {
-    for (let i = 0; i < d.numberOfIssues; i++) {
-      doneDatesOnly.push(d.time)
-    }
-  })
-  console.log(doneDatesOnly)
-
-  // map all new in progress ticket times.
-  // Jos done pvm sama kuin in prog.
-  // Tehdään vähennyslasku ja katsotaanko onko in prog numberOfIssues sama, jos ei niin lisätään uusi listaan
-  const inProgDates = []
-  let counter = 0
-  for (let i = 0; i < testInprog.length; i++) {
-    if (i === 0) {
-      for (let j = 0; j < testInprog[0].numberOfIssues; j++) {
-        inProgDates.push(testInprog[0].time)
-        counter += 1
-      }
-    } else {
-      // jos on tullut lisää in prog tilaan lisätään päivämäärät listaan.
-      if (counter < testInprog[i].numberOfIssues) {
-        for (let j = 0; j < testInprog[i].numberOfIssues - counter; j++) {
-          inProgDates.push(testInprog[i].time)
+        if (todos.length > 0 && todos[0].time < dones[i].time) {
+          todos[0].numberOfIssues--
+          if (todos[0].numberOfIssues === 0) { todos.shift() }
+        }
+        if (inProgs.length > 0) {
+          if (inProgs[0].numberOfIssues === 0) { inProgs.shift() }
         }
       }
     }
   }
 
-
-  // Calculate takt times. first takt times inProg -> dones. Then we will consider that the leftover dones are done on the same day
-  // so takt time = 0 for those.
-  // for(let i = 0; i < doneDatesOnly.length; i++) {
-  //   if (inProgUniq.length > 0) {
-  //     const taktTime = utils.helpers.getDaysBetweenDates(doneDatesOnly[i], inProgUniq[0])
-  //     taktTimes.push(taktTime)
-  //     inProgUniq.shift()
-  //   } else {
-  //     taktTimes.push(0)
-  //   }
-  // }
-  // console.log(taktTimes)
-
-  //response.json({taktTimes})
-  response.json({ testInprog, testDones })
-  //response.json({inProgress: Array.from(inProgChanges.entries()), dones: Array.from(doneChanges.entries())})
+  response.json({ taktTimes })
+  //response.json({ testTodos, testInprog, testDones })
+  //response.json({ inProgress: Array.from(inProgChanges.entries()), dones: Array.from(doneChanges.entries()) })
 })
 
 
 
 jiraRouter.get('/test', async (request, response) => {
-  const statusIssueChanges = await utils.mongooseQueries.getStatusIssueChanges()
-  const byEpic = statusIssueChanges.filter(s => s.epic === "CPS-5248" && (s.status === "In Progress" || s.status === "Done"))
-  const dones = byEpic.filter(a => a.status === "Done").sort((a, b) => a.time - b.time)
-  const inProg = byEpic.filter(a => a.status === "In Progress").sort((a, b) => a.time - b.time)
-  response.json({inProg, dones})
+  function ncdf(x, mean, std) {
+    var x = (x - mean) / std
+    var t = 1 / (1 + .2315419 * Math.abs(x))
+    var d = .3989423 * Math.exp(-x * x / 2)
+    var prob = d * t * (.3193815 + t * (-.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))))
+    if (x > 0) prob = 1 - prob
+    return prob
+  }
+  response.json({ inProg, dones })
 })
 
 
@@ -427,7 +431,7 @@ jiraRouter.get('/cl', async (request, response) => {
 
 
 
-// This we'll use to get all issues.
+// Get all issues.
 jiraRouter.get('/search', async (request, response) => {
   // jql-query for testing
   let jql = 'FILTER=DashBoardTestFilter'

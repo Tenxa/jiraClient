@@ -3,6 +3,7 @@ const mongooseQueries = require('./mongooseQueries')
 const storiesWithThemaAndEpic = require('./storiesWithThemaAndEpic')
 const dataInitLoop = require('./dataInitLoop')
 const createSip = require('./createSip')
+const createSipParallel = require('./createSipParallel')
 
 
 module.exports = {
@@ -10,5 +11,6 @@ module.exports = {
     mongooseQueries,
     storiesWithThemaAndEpic,
     dataInitLoop,
-    createSip
+    createSip,
+    createSipParallel
 }

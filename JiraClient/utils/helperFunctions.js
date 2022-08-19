@@ -445,6 +445,7 @@ const mapLogsWithIssueId = async () => {
 const getDaysBetweenDates = (date1, date2) => {
   const time1 = new Date(date1)
   const time2 = new Date(date2)
+  if (time1.getFullYear() == time2.getFullYear() && time1.getMonth() == time2.getMonth() && time1.getDate() == time2.getDate()) { return 0 }
   const diffInMillis = time1 - time2
   const days = Math.ceil(diffInMillis / (1000 * 3600 * 24))
   return days

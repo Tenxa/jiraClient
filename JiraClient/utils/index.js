@@ -4,6 +4,7 @@ const storiesWithThemaAndEpic = require('./storiesWithThemaAndEpic')
 const dataInitLoop = require('./dataInitLoop')
 const createSip = require('./createSip')
 const createSipParallel = require('./createSipParallel')
+const epicHelpers = require('./epicHelpers')
 
 
 module.exports = {
@@ -12,5 +13,6 @@ module.exports = {
     storiesWithThemaAndEpic,
     dataInitLoop,
     createSip,
-    createSipParallel
+    createSipParallel,
+    epicHelpers
 }

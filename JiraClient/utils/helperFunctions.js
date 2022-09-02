@@ -5,8 +5,6 @@ const config = require('./config')
 const ChangeLog = require('../models/changeLog')
 const Jirajs = require('jira.js')
 const Ticket = require('../models/ticket')
-const Cfd = require('../models/cfdTable')
-const async = require('async')
 const mongooseQuery = require('./mongooseQueries')
 
 
@@ -74,30 +72,6 @@ const jiraClientV2 = () => {
 //   return jira
 // }
 
-const jiraTest = async () => {
-  const jira = jiraClientV2()
-  const jql = 'ORDER BY Created DESC'
-  try {
-    const issueSearch = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(0, 2, jql))
-    return issueSearch
-  } catch (error) {
-    console.log('JiraTEst', error)
-  }
-}
-
-const jiraAgileClient = () => {
-  const agile = new Jirajs.AgileClient({
-    host: config.jiraURL,
-    authentication: {
-      basic: {
-        email: config.jiraDevLabsUser.trim(),
-        apiToken: config.jiraToken.trim()
-      },
-    },
-  })
-  return agile
-}
-
 
 const isValidCall = (request) => {
   try {
@@ -128,8 +102,7 @@ const isValidCall = (request) => {
   }
 }
 
-
-// Kahdesta alla olevista funktioista voisi tehdä geneerisempi toteutus...
+// Upsertion for tickets.
 const issuePromises = (issues) => {
   console.log('STARTED DB OPERATIONS')
   return issues.map((async i => {
@@ -142,6 +115,15 @@ const issuePromises = (issues) => {
   }))
 }
 
+
+const jqlSearch = (start, max, jql) => {
+  return {
+    jql,
+    maxResults: max,
+    startAt: start,
+  }
+}
+
 const changelogUpsert = (issues) => {
   return issues.map((async i => {
     return ChangeLog.findOneAndUpdate({ 'issueId': i.issueId }, i, { new: true, upsert: true })
@@ -152,60 +134,6 @@ const changelogUpsert = (issues) => {
       })
   }))
 }
-
-// loops through array and will increment numberOfIssues by 1
-const cfdEpicUpsert = async (array) => {
-  async.eachSeries(array, (obj, done) => {
-    Cfd.findOneAndUpdate({
-      'theme': obj.theme,
-      'epic': obj.epic,
-      'project': obj.project,
-      'time': obj.time,
-      'issuetype': obj.issuetype,
-      'status': obj.status
-    }, { $inc: { numberOfIssues: 1 } }, { new: true, upsert: true }, done)
-  }, (error) => {
-    if (error) {
-      console.log(error)
-    } else {
-      console.log('done')
-    }
-  })
-}
-
-// loops through array and will increment numberOfIssues by 1
-const cfdFeatureUpsert = async (array) => {
-  async.eachSeries(array, (obj, done) => {
-    Cfd.findOneAndUpdate({
-      'businessProcess': obj.businessProcess,
-      'feature': obj.feature,
-      'project': obj.project,
-      'time': obj.time,
-      'issuetype': obj.issuetype,
-      'status': obj.status
-    }, { $inc: { numberOfIssues: 1 } }, { new: true, upsert: true }, done)
-  }, (error) => {
-    if (error) {
-      console.log(error)
-    } else {
-      console.log('done')
-    }
-  })
-}
-
-
-
-
-const jqlSearch = (start, max, jql) => {
-  return {
-    //jql: 'ORDER BY Created DESC',
-    jql,
-    maxResults: max,
-    startAt: start,
-    //expand: ['changelog']
-  }
-}
-
 
 const changeLogsByIdArrayV2 = async (keys) => {
   const jira = jiraClientV2()
@@ -235,6 +163,7 @@ const changeLogsByIdArrayV2 = async (keys) => {
     results.push(await Promise.all(logsByKey))
   }
 
+  //return await results
   const updateOrInsertCLToDb = await changelogUpsert(results.flat())
   return await Promise.all(updateOrInsertCLToDb)
 }
@@ -280,26 +209,6 @@ const switchCaseStatus = (key, { toDo, inProgress, done } = { toDo: 0, inProgres
     inProgress,
     done
   }
-}
-
-const issueSearchLoopNoDB = async (startAt, maxResults, jql) => {
-  const jira = createJiraClientWithToken()
-  let issueArray = []
-  const issueSearch = await jira.search.search(jqlSearch(startAt, maxResults, jql))
-  issueSearch.issues.map(i => {
-    issueArray.push(i)
-  })
-  if (issueSearch.total > maxResults) {
-    const rounds = Math.ceil(issueSearch.total / maxResults)
-    for (i = 0; i < rounds - 1; i++) {
-      startAt += maxResults
-      const search = await jira.search.search(jqlSearch(startAt, maxResults, jql))
-      search.issues.map(i => {
-        issueArray.push(i)
-      })
-    }
-  }
-  return issueArray
 }
 
 
@@ -566,31 +475,6 @@ const getAllFeatureData = async () => {
   return featureCollection
 }
 
-// epicOrFeature = true => epic,
-// epicOrFeature = false => feature,
-const countStatuses = (arr, epicOrFeatureName, themeOrBpName, epicOrFeature) => {
-  let storyStatusesCount = {
-    toDo: 0,
-    inProgress: 0,
-    done: 0
-  }
-  arr.forEach(element => {
-    storyStatusesCount = switchCaseStatus(element.fields.status.statusCategory.name, storyStatusesCount)
-  })
-  return epicOrFeature ?
-    {
-      epicName: epicOrFeatureName,
-      toWhichTheme: themeOrBpName,
-      storyCount: arr.length,
-      storyStatusesCount,
-    } :
-    {
-      featureName: epicOrFeatureName,
-      toWhichBusinessProcess: themeOrBpName,
-      storyCount: arr.length,
-      storyStatusesCount,
-    }
-}
 
 /* 
   Currently will ignore cases if tickets change statuses vice versa
@@ -758,6 +642,20 @@ const factTable = (arr, propertyKey, simulationRounds) => {
   return ({ median, mean, standardDeviation, "85 percentile": firstPercentile, "95 percentile": secondPercentile })
 }
 
+const searchWithFilterDB = async (filter) => {
+  let jql = `FILTER=${filter}`
+
+  try {
+    const result = await issueSearchLoopJiraV2(0, 100, jql)
+    await issuePromises(result)
+    console.log("Added:", result.length, "items to DB")
+    return result
+  } catch (error) {
+    console.log(error)
+  }
+
+}
+
 module.exports = {
   getIssueStatusTimes,
   isValidCall,
@@ -765,12 +663,9 @@ module.exports = {
   createJiraTokenFromPsw,
   createJiraClientWithToken,
   createJiraClientWithMailAndToken,
-  changelogUpsert,
   issueSearchLoop,
   jiraClientV2,
-  jiraAgileClient,
   changeLogsByIdArrayV2,
-  issueSearchLoopNoDB,
   issueSearchLoopJiraV2,
   isPertientChangeEpic,
   isPertientChangeFeature,
@@ -780,17 +675,14 @@ module.exports = {
   getDaysBetweenDates,
   parseDateyyyymmdd,
   createCombinationObjects,
-  cfdEpicUpsert,
-  cfdFeatureUpsert,
   getAllFeatureData,
-  countStatuses,
   isActive,
   getRelativeSize,
   activePromise,
   switchCaseStatus,
   calculateDelta,
-  jiraTest,
   getStatusIssueChanges,
   factTable,
-  factTableDeviation
+  factTableDeviation,
+  searchWithFilterDB
 }

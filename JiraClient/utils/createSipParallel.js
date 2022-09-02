@@ -26,16 +26,21 @@ const createSipParallel = async () => {
 	const toInProgress = []
 	const toDone = []
 	const inProgToDone = new Map()
+	// push created dates to their respective arrays above
 	filteredLogs.forEach((epic) => epic.stories.forEach(story => {
 		const issueId = story.issueId
 		story.values.forEach(changeLog => changeLog.items.forEach(item => {
-			if (item.toString === "In Progress" && item.field === "status") { toInProgress.push({ issueId, epic: epic.epic, time: changeLog.created }) }
+			// Get the first In progress date as sometimes it goes from in Prog -> in review -> in Prog...
+			if (toInProgress.filter(ip => ip.issueId == issueId).length <= 0) {
+				if (item.toString === "In Progress" && item.field === "status") { toInProgress.push({ issueId, epic: epic.epic, time: changeLog.created }) }
+			}
 			if (item.toString === "Done" && item.field === "resolution") { toDone.push({ issueId, epic: epic.epic, time: changeLog.created }) }
 		}))
 	}))
 
 	toInProgress.sort((a, b) => a.time - b.time)
 	toDone.sort((a, b) => a.time - b.time)
+	// Find in progress tickets for dones and push to inProgToDone Map
 	toDone.forEach(d => {
 		if (!inProgToDone.has(d.epic)) { inProgToDone.set(d.epic, []) }
 		toInProgress.forEach(ip => {
@@ -43,6 +48,9 @@ const createSipParallel = async () => {
 		})
 	})
 
+
+	// dates[] will be an array of arrays. Every array will represent an epic.
+	// For checking parallely made tickets were looking for that only inside a single epic.
 	const dates = []
 	for (const key of inProgToDone.keys()) {
 		const epicDates = []

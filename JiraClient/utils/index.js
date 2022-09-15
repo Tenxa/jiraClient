@@ -5,6 +5,7 @@ const dataInitLoop = require('./dataInitLoop')
 const createSip = require('./createSip')
 const createSipParallel = require('./createSipParallel')
 const epicHelpers = require('./epicHelpers')
+const monteCarloSimulation = require('./monteCarloSimulation')
 
 
 module.exports = {
@@ -14,5 +15,6 @@ module.exports = {
     dataInitLoop,
     createSip,
     createSipParallel,
-    epicHelpers
+    epicHelpers,
+    monteCarloSimulation
 }

@@ -1,9 +1,12 @@
 const mongooseQueries = require('./mongooseQueries')
 const helpers = require('./helperFunctions')
+const epicHelpers = require('./epicHelpers')
+const monteCarloSimulation = require('./monteCarloSimulation')
 const storiesWithThemaAndEpic = require('./storiesWithThemaAndEpic')
 const StatusChange = require('../models/statusChange')
 const Epic = require('../models/epic')
 const Feature = require('../models/feature')
+const Cfd = require('../models/cfdTable')
 
 const dropAndInsertEpics = async () => {
   try {
@@ -31,13 +34,24 @@ const dropAndInsertEpics = async () => {
     const issueSize = e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress + e.storyStatusesCount.done
     const relativeSize = helpers.getRelativeSize(statusCounts, issueSize)
     const delta = await helpers.calculateDelta(e.storyStatusesCount)
+    let monteCarlo = {}
+    let deliveryTimeForDones = 0
+    if (e.storyStatusesCount.toDo > 0 || e.storyStatusesCount.inProgress > 0) {
+      monteCarlo = await monteCarloSimulation.monteCarloSimulation(e.storyStatusesCount.toDo + e.storyStatusesCount.inProgress)
+    }
+    if (e.storyStatusesCount.done > 0) {
+      deliveryTimeForDones = await epicHelpers.deliveryTimeForDones(e.epic)
+    }
+
     return {
       epic: e.epic,
       theme: e.theme,
       storyStatusesCount: e.storyStatusesCount,
       relativeSize,
       active,
-      delta
+      delta,
+      monteCarlo_for_not_dones: monteCarlo,
+      deliverytime_for_dones: deliveryTimeForDones
     }
   })
 
@@ -79,14 +93,27 @@ const dropAndInsertFeatures = async () => {
       businessProcess: f.toWhichBusinessProcess,
       storyStatusesCount: f.storyStatusesCount,
       relativeSize,
-      active
+      active,
     }
   })
   const resolvedPromises = await Promise.all(featurePromises)
   await mongooseQueries.insertFeatures(resolvedPromises)
 }
 
+const dropCfdCollection = async () => {
+  try {
+    await Cfd.collection.drop()
+  } catch (error) {
+    if (error.code === 26) {
+      console.log('Drop Cfd collection')
+    } else {
+      throw error;
+    }
+  }
+}
+
 const dataInitLoop = async (array, epicOrFeature) => {
+  await dropCfdCollection()
   const eOrFStoryArrayLength = (i) => {
     return epicOrFeature ? array[i].stories.length : array[i].storiesForFeatureBasic.length
   }
@@ -200,8 +227,38 @@ const dataInitLoop = async (array, epicOrFeature) => {
   return result
 }
 
+const dataInitialization = async () => {
+  try {
+
+    const getTicketsToDB = await helpers.searchWithFilterDB(process.env.JQL_FILTER)
+    // Get changelogs for above tickets and upsert to DB
+    await helpers.changeLogsByIdArrayV2(getTicketsToDB.map(t => t.key))
+
+    const featuresData = await helpers.getAllFeatureData()
+    const resolveData = await Promise.all(featuresData)
+    const filterUndefinedFeatures = await resolveData.flat().filter(a => a !== undefined)
+      .filter(s => s.storiesForFeatureBasic.length > 0)
+
+
+    const resultFeature = await dataInitLoop(filterUndefinedFeatures, false)
+
+    const themeEpic = await storiesWithThemaAndEpic.storiesWithThemaAndEpic()
+    const resultEpic = await dataInitLoop(themeEpic, true)
+
+    const epicAndFeatureResult = resultFeature.concat(resultEpic)
+    await mongooseQueries.insertCfds(epicAndFeatureResult)
+    await dropAndInsertEpics()
+    await dropAndInsertFeatures()
+
+    return (resultFeature.length + resultEpic.length)
+  } catch (error) {
+    console.log(error)
+  }
+}
+
 module.exports = {
   dataInitLoop,
   dropAndInsertEpics,
-  dropAndInsertFeatures
+  dropAndInsertFeatures,
+  dataInitialization
 }

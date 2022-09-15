@@ -58,19 +58,6 @@ const jiraClientV2 = () => {
   return jira
 }
 
-// Later replace Jira REST API version2 calls with this. Haven't yet tested differences so let's implement later.
-// const jiraClientV3 = () => {
-//   const jira = new Jirajs.Version3Client({
-//     host: config.jiraURL,
-//     authentication: {
-//       basic: {
-//         email: config.jiraDevLabsUser.trim(),
-//         apiToken: config.jiraToken.trim()
-//       },
-//     },
-//   });
-//   return jira
-// }
 
 
 const isValidCall = (request) => {
@@ -106,7 +93,8 @@ const isValidCall = (request) => {
 const issuePromises = (issues) => {
   console.log('STARTED DB OPERATIONS')
   return issues.map((async i => {
-    return Ticket.findOneAndUpdate({ 'id': i.id }, i, { new: true, upsert: true })
+    const newData = {...i, configurationDate: new Date()}
+    return Ticket.findOneAndUpdate({ 'id': i.id }, newData, { new: true, upsert: true })
       .then(updatedIssue => updatedIssue)
       .catch(error => {
         console.log(error)
@@ -213,7 +201,7 @@ const switchCaseStatus = (key, { toDo, inProgress, done } = { toDo: 0, inProgres
 
 
 const issueSearchLoopJiraV2 = async (startAt, maxResults, jql) => {
-  console.log('IN S-LOOP')
+  console.log('IN SEARCH-LOOP')
   const jira = jiraClientV2()
   let issueArray = []
   const issueSearch = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(startAt, maxResults, jql))
@@ -221,11 +209,9 @@ const issueSearchLoopJiraV2 = async (startAt, maxResults, jql) => {
 
   if (issueSearch.total > maxResults) {
     const rounds = Math.ceil(issueSearch.total / maxResults)
-    //const rounds = 5
     for (i = 0; i < rounds - 1; i++) {
       startAt += maxResults
       const search = await jira.issueSearch.searchForIssuesUsingJql(jqlSearch(startAt, maxResults, jql))
-      console.log(`ROUND ${i}`)
       issueArray.push(...search.issues)
     }
   }
@@ -613,7 +599,7 @@ const factTableDeviation = (arr, simulationRounds) => {
   const pdfForLastRow = freqForMax / simulationRounds
   const cdfForFirstRow = pdfForFirstRow
   const cdfForLastRow = 1
-  const tableArray = [{ value: min, freq: freqForMin, pdf: pdfForFirstRow, cdf: cdfForFirstRow }, { value: max, freq: freqForMax, pdf: pdfForLastRow, cdf: cdfForLastRow }]
+  const tableArray = [{ value: min, frequency: freqForMin, probability_density_function: pdfForFirstRow, cumulative_density_function: cdfForFirstRow }, { value: max, freq: freqForMax, pdf: pdfForLastRow, cdf: cdfForLastRow }]
   const copyTableArray = [...tableArray]
   copyTableArray.pop()
   let previousValue = min
@@ -623,9 +609,9 @@ const factTableDeviation = (arr, simulationRounds) => {
     // PDF -> Probability Density Function
     const pdf = frequency / simulationRounds
     // CDF -> Cumulative Distribution Function
-    const cdf = copyTableArray.reduce((a, b) => a + b.freq, frequency) / simulationRounds
-    tableArray.push({ value: ttOrDt, freq: frequency, pdf, cdf })
-    copyTableArray.push({ value: ttOrDt, freq: frequency, pdf, cdf })
+    const cdf = copyTableArray.reduce((a, b) => a + b.frequency, frequency) / simulationRounds
+    tableArray.push({ value: ttOrDt, frequency: frequency, probability_density_function: pdf, cumulative_density_function: cdf })
+    copyTableArray.push({ value: ttOrDt, frequency: frequency, probability_density_function: pdf, cumulative_density_function: cdf })
     previousValue = ttOrDt
   }
   return tableArray.sort((a, b) => a.value - b.value)
@@ -639,7 +625,7 @@ const factTable = (arr, propertyKey, simulationRounds) => {
   const firstPercentile = calculatePercentile(newArr, 0.85)
   const secondPercentile = calculatePercentile(newArr, 0.95)
 
-  return ({ median, mean, standardDeviation, "85 percentile": firstPercentile, "95 percentile": secondPercentile })
+  return ({ median, mean, standardDeviation, "percentile_85th": firstPercentile, "percentile_95th": secondPercentile })
 }
 
 const searchWithFilterDB = async (filter) => {

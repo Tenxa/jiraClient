@@ -12,9 +12,11 @@ const epicSchema = new mongoose.Schema({
     relativeSize: Number,
     active: Boolean,
     delta: Number,
-    monteCarloCurrent: Date,
-    monteCarloRealistic: Date,
-    monteCarloPessimistic: Date
+    monteCarlo_for_not_dones: {},
+    deliverytime_for_dones: {}
+    //monteCarloCurrent: Date,
+    //monteCarloRealistic: Date,
+    //monteCarloPessimistic: Date
 })
 
 epicSchema.set('toJSON', {
